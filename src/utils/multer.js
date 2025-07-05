@@ -20,173 +20,337 @@ if (!fs.existsSync(videosDir)) {
   fs.mkdirSync(videosDir, { recursive: true });
 }
 
-// Configuration pour les images
-const imageStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, imagesDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, `img-${uniqueSuffix}${ext}`);
-  }
-});
+// ✅ LISTES DES TYPES MIME AUTORISÉS (AVEC SUPPORT FLUTTER)
+const ALLOWED_IMAGE_TYPES = [
+  'image/jpeg', 
+  'image/jpg', 
+  'image/png', 
+  'image/gif', 
+  'image/webp',
+  'image/bmp',
+  'image/tiff'
+];
 
-// Configuration pour les vidéos
-const videoStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, videosDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, `video-${uniqueSuffix}${ext}`);
-  }
-});
+const ALLOWED_VIDEO_TYPES = [
+  'video/mp4', 
+  'video/webm', 
+  'video/ogg', 
+  'video/quicktime',
+  'video/avi',
+  'video/mov',
+  'video/wmv',
+  'video/3gp'
+];
 
-// Filtre pour les images
-const imageFileFilter = (req, file, cb) => {
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/gif', 'image/webp'];
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error('Type d\'image non autorisé. Formats acceptés: JPEG, PNG, JPG, GIF, WEBP'), false);
+// ✅ EXTENSIONS D'IMAGES AUTORISÉES (POUR FLUTTER)
+const ALLOWED_IMAGE_EXTENSIONS = [
+  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff'
+];
+
+// ✅ EXTENSIONS VIDÉOS AUTORISÉES (POUR FLUTTER)
+const ALLOWED_VIDEO_EXTENSIONS = [
+  '.mp4', '.webm', '.ogg', '.mov', '.avi', '.wmv', '.3gp'
+];
+
+// ✅ FONCTION UTILITAIRE AMÉLIORÉE POUR FLUTTER
+const getFileTypeByMime = (mimetype) => {
+  if (ALLOWED_IMAGE_TYPES.includes(mimetype)) {
+    return 'image';
+  } else if (ALLOWED_VIDEO_TYPES.includes(mimetype)) {
+    return 'video';
   }
+  return null;
 };
 
-// Filtre pour les vidéos
-const videoFileFilter = (req, file, cb) => {
-  const allowedTypes = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime'];
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error('Type de vidéo non autorisé. Formats acceptés: MP4, WEBM, OGG, MOV'), false);
-  }
-};
-
-// Filtre générique qui détecte automatiquement le type de fichier
-const generalFileFilter = (req, file, cb) => {
-  const imageTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/gif', 'image/webp'];
-  const videoTypes = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime'];
+// ✅ FONCTION UTILITAIRE PAR EXTENSION (POUR application/octet-stream)
+const getFileTypeByExtension = (filename) => {
+  const ext = path.extname(filename).toLowerCase();
   
-  if (imageTypes.includes(file.mimetype)) {
-    file.destination = imagesDir;
+  if (ALLOWED_IMAGE_EXTENSIONS.includes(ext)) {
+    return 'image';
+  } else if (ALLOWED_VIDEO_EXTENSIONS.includes(ext)) {
+    return 'video';
+  }
+  return null;
+};
+
+// ✅ FONCTION HYBRIDE QUI GÈRE FLUTTER
+const getFileType = (mimetype, filename) => {
+  console.log(`🔍 Détection type - MIME: ${mimetype}, Fichier: ${filename}`);
+  
+  // 1. Essayer d'abord par type MIME
+  const typeByMime = getFileTypeByMime(mimetype);
+  if (typeByMime) {
+    console.log(`✅ Type détecté par MIME: ${typeByMime}`);
+    return typeByMime;
+  }
+  
+  // 2. Si MIME générique (application/octet-stream), utiliser l'extension
+  if (mimetype === 'application/octet-stream') {
+    const typeByExt = getFileTypeByExtension(filename);
+    if (typeByExt) {
+      console.log(`✅ Type détecté par extension: ${typeByExt} (MIME était générique)`);
+      return typeByExt;
+    }
+  }
+  
+  console.log(`❌ Type non reconnu - MIME: ${mimetype}, Extension: ${path.extname(filename)}`);
+  return null;
+};
+
+// ✅ FILTRE GÉNÉRIQUE AMÉLIORÉ POUR FLUTTER
+const generalFileFilter = (req, file, cb) => {
+  console.log(`📁 Vérification fichier Flutter - Nom: ${file.originalname}, Type MIME: ${file.mimetype}`);
+  
+  const fileType = getFileType(file.mimetype, file.originalname);
+  
+  if (fileType === 'image') {
+    console.log(`✅ Fichier accepté comme image: ${file.originalname}`);
     file.fileType = 'image';
     cb(null, true);
-  } else if (videoTypes.includes(file.mimetype)) {
-    file.destination = videosDir;
+  } else if (fileType === 'video') {
+    console.log(`✅ Fichier accepté comme vidéo: ${file.originalname}`);
     file.fileType = 'video';
     cb(null, true);
   } else {
-    cb(new Error('Type de fichier non autorisé. Seuls les images et vidéos sont acceptés.'), false);
+    console.log(`❌ Type de fichier non autorisé pour: ${file.originalname}`);
+    console.log(`📋 MIME reçu: ${file.mimetype}`);
+    console.log(`📋 Extension: ${path.extname(file.originalname)}`);
+    console.log(`📋 Types MIME acceptés:`, ALLOWED_IMAGE_TYPES.concat(ALLOWED_VIDEO_TYPES));
+    console.log(`📋 Extensions acceptées:`, ALLOWED_IMAGE_EXTENSIONS.concat(ALLOWED_VIDEO_EXTENSIONS));
+    
+    const error = new Error(`Type de fichier non autorisé: ${file.originalname}. Formats acceptés: ${ALLOWED_IMAGE_EXTENSIONS.concat(ALLOWED_VIDEO_EXTENSIONS).join(', ')}`);
+    error.code = 'INVALID_FILE_TYPE';
+    cb(error, false);
   }
 };
 
-// Limites de taille pour les fichiers
-const imageLimits = {
-  fileSize: 5 * 1024 * 1024 // 5MB
-};
-
-const videoLimits = {
-  fileSize: 50 * 1024 * 1024 // 50MB
-};
-
-// Initialiser les instances Multer
-const imageUpload = multer({
-  storage: imageStorage,
-  fileFilter: imageFileFilter,
-  limits: imageLimits
-});
-
-const videoUpload = multer({
-  storage: videoStorage,
-  fileFilter: videoFileFilter,
-  limits: videoLimits
-});
-
-// Instance Multer pour uploader plusieurs types de fichiers
+// ✅ STORAGE AMÉLIORÉ POUR FLUTTER
 const multiUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
-      // Choisir la destination en fonction du type MIME
-      const imageTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/gif', 'image/webp'];
-      const videoTypes = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime'];
+      console.log(`📂 Détermination destination - Fichier: ${file.originalname}`);
       
-      if (imageTypes.includes(file.mimetype)) {
+      const fileType = getFileType(file.mimetype, file.originalname);
+      
+      if (fileType === 'image') {
+        console.log(`📁 Destination: ${imagesDir}`);
         cb(null, imagesDir);
-      } else if (videoTypes.includes(file.mimetype)) {
+      } else if (fileType === 'video') {
+        console.log(`📁 Destination: ${videosDir}`);
         cb(null, videosDir);
       } else {
-        cb(new Error('Type de fichier non autorisé'), false);
+        console.log(`❌ Destination impossible pour: ${file.originalname}`);
+        const error = new Error(`Type de fichier non autorisé: ${file.originalname}`);
+        error.code = 'INVALID_FILE_TYPE';
+        cb(error, null);
       }
     },
     filename: (req, file, cb) => {
       const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
       const ext = path.extname(file.originalname);
-      const prefix = file.mimetype.startsWith('image/') ? 'img' : 'video';
-      cb(null, `${prefix}-${uniqueSuffix}${ext}`);
+      const fileType = getFileType(file.mimetype, file.originalname);
+      const prefix = fileType === 'image' ? 'img' : 'video';
+      const filename = `${prefix}-${uniqueSuffix}${ext}`;
+      console.log(`📝 Nom de fichier généré: ${filename}`);
+      cb(null, filename);
     }
   }),
   fileFilter: generalFileFilter,
   limits: {
-    fileSize: 50 * 1024 * 1024 // 50MB max, on vérifiera spécifiquement par type dans le middleware
+    fileSize: 50 * 1024 * 1024, // 50MB max
+    files: 6 // Maximum 5 images + 1 vidéo
   }
 });
 
-// Middleware pour vérifier les limites spécifiques par type
+// ✅ MIDDLEWARE AMÉLIORÉ POUR VÉRIFIER LES LIMITES SPÉCIFIQUES
 const checkFileSizeLimits = (req, res, next) => {
-  if (!req.files) return next();
+  console.log(`🔍 Vérification des limites de taille...`);
+  
+  if (!req.files || Object.keys(req.files).length === 0) {
+    console.log(`📁 Aucun fichier à vérifier`);
+    return next();
+  }
   
   const errors = [];
+  let totalFiles = 0;
   
-  Object.keys(req.files).forEach(fieldName => {
-    req.files[fieldName].forEach(file => {
-      if (file.mimetype.startsWith('image/') && file.size > imageLimits.fileSize) {
-        errors.push(`L'image ${file.originalname} dépasse la limite de taille de 5MB`);
-      } else if (file.mimetype.startsWith('video/') && file.size > videoLimits.fileSize) {
-        errors.push(`La vidéo ${file.originalname} dépasse la limite de taille de 50MB`);
-      }
-    });
-  });
-  
-  if (errors.length > 0) {
-    // Supprimer les fichiers déjà uploadés
+  try {
     Object.keys(req.files).forEach(fieldName => {
-      req.files[fieldName].forEach(file => {
-        fs.unlinkSync(file.path);
+      const files = req.files[fieldName];
+      console.log(`📋 Champ: ${fieldName}, Nombre de fichiers: ${files.length}`);
+      
+      files.forEach((file, index) => {
+        totalFiles++;
+        console.log(`📄 Fichier ${index + 1}: ${file.originalname} (${file.size} bytes, ${file.mimetype})`);
+        
+        const fileType = getFileType(file.mimetype, file.originalname);
+        
+        // Vérifications spécifiques par type
+        if (fileType === 'image') {
+          if (file.size > 5 * 1024 * 1024) { // 5MB pour images
+            const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+            errors.push(`L'image "${file.originalname}" (${sizeMB}MB) dépasse la limite de 5MB`);
+          }
+        } else if (fileType === 'video') {
+          if (file.size > 50 * 1024 * 1024) { // 50MB pour vidéos
+            const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+            errors.push(`La vidéo "${file.originalname}" (${sizeMB}MB) dépasse la limite de 50MB`);
+          }
+        }
       });
     });
     
-    return res.status(400).json({ errors });
+    console.log(`📊 Total des fichiers traités: ${totalFiles}`);
+    
+    if (errors.length > 0) {
+      console.log(`❌ Erreurs de taille détectées:`, errors);
+      
+      // Supprimer les fichiers déjà uploadés
+      Object.keys(req.files).forEach(fieldName => {
+        req.files[fieldName].forEach(file => {
+          try {
+            if (fs.existsSync(file.path)) {
+              fs.unlinkSync(file.path);
+              console.log(`🗑️ Fichier supprimé: ${file.path}`);
+            }
+          } catch (deleteError) {
+            console.error(`❌ Erreur suppression fichier ${file.path}:`, deleteError);
+          }
+        });
+      });
+      
+      return res.status(400).json({ 
+        status: 'error',
+        code: 'FILE_SIZE_EXCEEDED',
+        message: 'Certains fichiers dépassent les limites de taille autorisées',
+        errors 
+      });
+    }
+    
+    console.log(`✅ Toutes les vérifications de taille sont passées`);
+    next();
+    
+  } catch (error) {
+    console.error(`❌ Erreur dans checkFileSizeLimits:`, error);
+    return res.status(500).json({
+      status: 'error',
+      code: 'FILE_CHECK_ERROR',
+      message: 'Erreur lors de la vérification des fichiers',
+      error: error.message
+    });
+  }
+};
+
+// ✅ MIDDLEWARE DE DEBUG AMÉLIORÉ
+const debugFileUpload = (req, res, next) => {
+  console.log(`\n🚀 === DÉBUT UPLOAD DEBUG FLUTTER ===`);
+  console.log(`📅 Timestamp: ${new Date().toISOString()}`);
+  console.log(`🌐 Route: ${req.method} ${req.path}`);
+  console.log(`👤 User ID: ${req.user?.id || 'Non authentifié'}`);
+  
+  // Debug du body
+  console.log(`📝 Body:`, Object.keys(req.body).length > 0 ? req.body : 'Vide');
+  
+  // Debug des fichiers
+  if (req.files && Object.keys(req.files).length > 0) {
+    console.log(`📁 Fichiers reçus depuis Flutter:`, Object.keys(req.files).map(key => ({
+      field: key,
+      count: req.files[key].length,
+      files: req.files[key].map(f => ({
+        name: f.originalname,
+        type: f.mimetype,
+        size: `${(f.size / 1024).toFixed(2)}KB`,
+        path: f.path,
+        extension: path.extname(f.originalname)
+      }))
+    })));
+  } else {
+    console.log(`📁 Aucun fichier reçu depuis Flutter`);
   }
   
+  console.log(`🚀 === FIN UPLOAD DEBUG FLUTTER ===\n`);
   next();
+};
+
+// ✅ MIDDLEWARE DE GESTION D'ERREURS MULTER SPÉCIFIQUE FLUTTER
+const handleMulterError = (error, req, res, next) => {
+  console.error(`❌ Erreur Multer (Flutter):`, error);
+  
+  if (error instanceof multer.MulterError) {
+    let message = 'Erreur lors de l\'upload';
+    let code = 'UPLOAD_ERROR';
+    
+    switch (error.code) {
+      case 'LIMIT_FILE_SIZE':
+        message = 'Fichier trop volumineux (max 50MB)';
+        code = 'FILE_TOO_LARGE';
+        break;
+      case 'LIMIT_FILE_COUNT':
+        message = 'Trop de fichiers (max 5 images + 1 vidéo)';
+        code = 'TOO_MANY_FILES';
+        break;
+      case 'LIMIT_UNEXPECTED_FILE':
+        message = 'Champ de fichier inattendu. Utilisez "productImages" pour les images et "video" pour les vidéos';
+        code = 'UNEXPECTED_FIELD';
+        break;
+      case 'LIMIT_PART_COUNT':
+        message = 'Trop de parties dans la requête';
+        code = 'TOO_MANY_PARTS';
+        break;
+    }
+    
+    return res.status(400).json({
+      status: 'error',
+      code,
+      message,
+      details: error.message
+    });
+  }
+  
+  if (error.code === 'INVALID_FILE_TYPE') {
+    return res.status(400).json({
+      status: 'error',
+      code: 'INVALID_FILE_TYPE',
+      message: error.message,
+      acceptedFormats: {
+        images: ALLOWED_IMAGE_EXTENSIONS,
+        videos: ALLOWED_VIDEO_EXTENSIONS
+      }
+    });
+  }
+  
+  // Erreur générique
+  console.error(`❌ Erreur upload non gérée:`, error);
+  return res.status(500).json({
+    status: 'error',
+    code: 'UPLOAD_ERROR',
+    message: 'Erreur interne lors de l\'upload',
+    details: process.env.NODE_ENV === 'development' ? error.message : 'Contactez le support'
+  });
 };
 
 // Exportation des fonctions d'upload
 export default {
-  // Upload d'images uniquement
-  uploadProductImages: imageUpload.array('productImages', 5),
-  
-  // Upload de vidéo uniquement
-  uploadProductVideo: videoUpload.single('video'),
-  
-  // Upload d'images et de vidéo en même temps
+  // ✅ Upload principal pour produits Flutter
   uploadProductMedia: multiUpload.fields([
     { name: 'productImages', maxCount: 5 },
     { name: 'video', maxCount: 1 }
   ]),
   
-  // Middleware pour vérifier les limites de taille
+  // Middlewares
   checkFileSizeLimits,
+  debugFileUpload,
+  handleMulterError,
   
-  // Pour les avatars utilisateurs
-  uploadUserAvatar: imageUpload.single('avatar'),
+  // Uploads spécifiques
+  uploadUserAvatar: multiUpload.single('avatar'),
+  uploadShopLogo: multiUpload.single('logo'),
   
-  // Logo de boutique
-  uploadShopLogo: imageUpload.single('logo'),
-  
-  // Pour d'autres cas d'utilisation spécifiques
-  uploadGenericImage: imageUpload.single('image'),
-  uploadGenericVideo: videoUpload.single('video')
+  // Constantes utiles
+  ALLOWED_IMAGE_TYPES,
+  ALLOWED_VIDEO_TYPES,
+  ALLOWED_IMAGE_EXTENSIONS,
+  ALLOWED_VIDEO_EXTENSIONS,
+  getFileType
 };

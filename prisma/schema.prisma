@@ -1,6 +1,10 @@
 // Configuration de la base de données
+// datasource db {
+//   provider = "mysql"
+//   url      = env("DATABASE_URL")
+// }
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"  // Changé de "mysql" à "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -101,6 +105,7 @@ model User {
   country          String
   city             String
   department       String
+  isOnline         Boolean       @default(false)  // ← AJOUT
   commune          String
   resetCode        String? 
   role             UserRole @default(CLIENT) 
@@ -300,20 +305,26 @@ model OrderItem {
   product          Product        @relation(fields: [productId], references: [id])
 }
 
-// Message
+// Message// Ajoutez ces deux champs à votre modèle Message dans schema.prisma
+
+// Message - MISE À JOUR POUR L'AUDIO
 model Message {
   id               Int           @id @default(autoincrement())
   senderId         Int
   receiverId       Int
-  content          String
-  isRead           Boolean        @default(false)
-  createdAt        DateTime       @default(now())
+  content          String        @db.Text
+  mediaUrl         String?       // URL du média (image, vidéo OU audio) 🔥
+  mediaType        String?       // Type: 'image', 'video' OU 'audio' 🔥
+  isRead           Boolean       @default(false)
+  deletedForSender Boolean       @default(false)
+  deletedForReceiver Boolean     @default(false)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
   // Relations
-  sender           User           @relation("SenderMessages", fields: [senderId], references: [id])
-  receiver         User           @relation("ReceiverMessages", fields: [receiverId], references: [id])
+  sender           User          @relation("SenderMessages", fields: [senderId], references: [id])
+  receiver         User          @relation("ReceiverMessages", fields: [receiverId], references: [id])
 }
-
 // Abonnement (follow)
 model Subscription {
   id               Int           @id @default(autoincrement())

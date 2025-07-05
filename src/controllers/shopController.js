@@ -2,9 +2,13 @@ import { PrismaClient } from '@prisma/client';
 import { createNotification } from '../services/notificationService.js';
 // En haut de votre fichier shopController.js
 import { sendContactMerchantEmail, sendConfirmationToCustomer } from '../services/emailService.js';
+import cloudinary from '../utils/cloudinary.js';
+import { shopErrors } from '../utils/errorMessages.js';
+import fs from 'fs';
+
 const prisma = new PrismaClient();
 
-export const createShop = async (req, res) => {
+export const createShop = async (req, res, next) => {
   try {
     const { 
       name, 
@@ -21,12 +25,18 @@ export const createShop = async (req, res) => {
     });
     
     if (!user) {
-      return res.status(404).json({ message: "Utilisateur non trouvé" });
+      return res.status(404).json({ 
+        status: 'error',
+        code: 'USER_NOT_FOUND',
+        message: "Utilisateur non trouvé" 
+      });
     }
     
     if (user.role !== 'MERCHANT') {
       return res.status(403).json({ 
-        message: "Seuls les commerçants peuvent créer une boutique" 
+        status: 'error',
+        code: 'NOT_MERCHANT',
+        message: shopErrors.creation.notMerchant
       });
     }
     
@@ -37,12 +47,38 @@ export const createShop = async (req, res) => {
     
     if (existingShop) {
       return res.status(400).json({ 
-        message: "Vous possédez déjà une boutique" 
+        status: 'error',
+        code: 'SHOP_EXISTS',
+        message: shopErrors.creation.alreadyHasShop
       });
     }
     
-    // Récupérer le chemin du logo téléchargé (si présent)
-    const logo = req.file ? req.file.path : null;
+    // Traitement du logo avec Cloudinary
+    let logoUrl = null;
+    
+    if (req.file) {
+      try {
+        // Upload de l'image vers Cloudinary
+        const result = await cloudinary.uploader.upload(req.file.path, {
+          folder: 'shop_logos',
+          use_filename: true,
+          unique_filename: true,
+        });
+        
+        logoUrl = result.secure_url;
+        
+        // Supprimer le fichier temporaire
+        fs.unlinkSync(req.file.path);
+      } catch (cloudinaryError) {
+        console.error('Erreur lors de l\'upload du logo vers Cloudinary:', cloudinaryError);
+        return next({
+          name: 'CloudinaryError',
+          message: shopErrors.creation.uploadFailed,
+          details: cloudinaryError.message,
+          status: 500
+        });
+      }
+    }
     
     // Créer la boutique
     const newShop = await prisma.shop.create({
@@ -52,7 +88,7 @@ export const createShop = async (req, res) => {
         phoneNumber,
         address,
         userId,
-        logo
+        logo: logoUrl
       }
     });
     
@@ -68,29 +104,25 @@ export const createShop = async (req, res) => {
     });
     
     return res.status(201).json({
+      status: 'success',
       message: "Boutique créée avec succès",
       shop: newShop
     });
   } catch (error) {
-    console.error("Erreur lors de la création de la boutique:", error);
-    
+    // Gestion spécifique de l'erreur de numéro de téléphone en double
     if (error.code === 'P2002' && error.meta?.target?.includes('phoneNumber')) {
       return res.status(400).json({ 
-        message: "Ce numéro de téléphone est déjà utilisé par une autre boutique" 
+        status: 'error',
+        code: 'PHONE_EXISTS',
+        message: shopErrors.creation.phoneNumberExists
       });
     }
     
-    return res.status(500).json({ 
-      message: "Une erreur est survenue lors de la création de la boutique",
-      error: error.message 
-    });
+    return next(error);
   }
 };
-// Méthode pour récupérer la boutique de l'utilisateur connecté
 
-
-// Méthode CORRIGÉE pour récupérer la boutique de l'utilisateur connecté
-export const getMyShop = async (req, res) => {
+export const getMyShop = async (req, res, next) => {
   try {
     const userId = req.user.id;
     
@@ -100,38 +132,42 @@ export const getMyShop = async (req, res) => {
     });
     
     if (!shop) {
-      return res.status(404).json({ message: "Vous n'avez pas encore de boutique" });
+      return res.status(404).json({ 
+        status: 'error',
+        code: 'NO_SHOP_OWNED',
+        message: shopErrors.retrieval.noShopOwned
+      });
     }
     
     // Récupérer les produits associés à la boutique
     const products = await prisma.product.findMany({
       where: { shopId: shop.id },
       include: {
-        images: true // Inclure les images des produits
+        images: true
       }
     });
     
     return res.status(200).json({
+      status: 'success',
       message: "Boutique récupérée avec succès",
       shop,
       products
     });
   } catch (error) {
-    console.error("Erreur lors de la récupération de la boutique:", error);
-    return res.status(500).json({
-      message: "Erreur lors de la récupération de votre boutique",
-      error: error.message
-    });
+    next(error);
   }
 };
 
-// Méthode pour récupérer les produits d'une boutique spécifique
-export const getShopProducts = async (req, res) => {
+export const getShopProducts = async (req, res, next) => {
   try {
     const shopId = parseInt(req.params.shopId, 10);
     
     if (isNaN(shopId)) {
-      return res.status(400).json({ message: "ID de boutique invalide" });
+      return res.status(400).json({ 
+        status: 'error',
+        code: 'INVALID_ID',
+        message: shopErrors.retrieval.invalidId
+      });
     }
     
     // Vérifier si la boutique existe
@@ -140,7 +176,11 @@ export const getShopProducts = async (req, res) => {
     });
     
     if (!shop) {
-      return res.status(404).json({ message: "Boutique non trouvée" });
+      return res.status(404).json({ 
+        status: 'error',
+        code: 'SHOP_NOT_FOUND',
+        message: shopErrors.retrieval.notFound
+      });
     }
     
     // Récupérer les produits de cette boutique
@@ -152,35 +192,39 @@ export const getShopProducts = async (req, res) => {
     });
     
     return res.status(200).json({
-      message: "Produits récupérés avec succès",
+      status: 'success',
+      message: products.length > 0 ? "Produits récupérés avec succès" : shopErrors.retrieval.noProductsFound,
       products
     });
   } catch (error) {
-    console.error("Erreur lors de la récupération des produits:", error);
-    return res.status(500).json({
-      message: "Erreur lors de la récupération des produits de la boutique",
-      error: error.message
-    });
+    next(error);
   }
 };
 
-// Autres fonctions pour la gestion des boutiques
-export const getShopById = async (req, res) => {
+export const getShopById = async (req, res, next) => {
   try {
     const { id } = req.params;
     const shopId = parseInt(id, 10);
     
     if (isNaN(shopId)) {
-      return res.status(400).json({ message: "ID de boutique invalide" });
+      return res.status(400).json({ 
+        status: 'error',
+        code: 'INVALID_ID',
+        message: shopErrors.retrieval.invalidId
+      });
     }
     
-    // Vérifier si la boutique existe dans la base de données
+    // Vérifier si la boutique existe
     const shop = await prisma.shop.findUnique({
       where: { id: shopId }
     });
     
     if (!shop) {
-      return res.status(404).json({ message: "Boutique non trouvée" });
+      return res.status(404).json({ 
+        status: 'error',
+        code: 'SHOP_NOT_FOUND',
+        message: shopErrors.retrieval.notFound
+      });
     }
 
     // Récupérer les produits de cette boutique
@@ -191,28 +235,28 @@ export const getShopById = async (req, res) => {
       }
     });
 
-    // Retourner la boutique trouvée avec ses produits
     return res.status(200).json({
+      status: 'success',
       message: "Boutique récupérée avec succès",
       shop,
       products
     });
   } catch (error) {
-    console.error("Erreur lors de la récupération de la boutique:", error);
-    return res.status(500).json({
-      message: "Une erreur est survenue lors de la récupération de la boutique",
-      error: error.message
-    });
+    next(error);
   }
 };
 
-export const updateShop = async (req, res) => {
+export const updateShop = async (req, res, next) => {
   try {
     const { id } = req.params;
     const shopId = parseInt(id, 10);
     
     if (isNaN(shopId)) {
-      return res.status(400).json({ message: "ID de boutique invalide" });
+      return res.status(400).json({ 
+        status: 'error',
+        code: 'INVALID_ID',
+        message: shopErrors.retrieval.invalidId
+      });
     }
     
     const { name, description, phoneNumber, address } = req.body;
@@ -224,15 +268,61 @@ export const updateShop = async (req, res) => {
     });
     
     if (!shop) {
-      return res.status(404).json({ message: "Boutique non trouvée" });
+      return res.status(404).json({ 
+        status: 'error',
+        code: 'SHOP_NOT_FOUND',
+        message: shopErrors.retrieval.notFound
+      });
     }
     
     if (shop.userId !== userId) {
-      return res.status(403).json({ message: "Vous n'êtes pas autorisé à modifier cette boutique" });
+      return res.status(403).json({ 
+        status: 'error',
+        code: 'NOT_AUTHORIZED',
+        message: shopErrors.update.notAuthorized
+      });
     }
     
-    // Récupérer le chemin du logo téléchargé (si présent)
-    const logo = req.file ? req.file.path : shop.logo;
+    // Traitement du logo avec Cloudinary
+    let logoUrl = shop.logo;
+    
+    if (req.file) {
+      try {
+        // Si un logo existe déjà, le supprimer de Cloudinary
+        if (shop.logo && shop.logo.includes('cloudinary.com')) {
+          try {
+            // Extraire l'ID public de l'URL Cloudinary
+            const publicId = shop.logo.split('/').pop().split('.')[0];
+            if (publicId) {
+              await cloudinary.uploader.destroy(`shop_logos/${publicId}`);
+            }
+          } catch (deleteError) {
+            console.error('Erreur lors de la suppression de l\'ancien logo:', deleteError);
+            // Continuer malgré l'erreur
+          }
+        }
+        
+        // Upload du nouveau logo vers Cloudinary
+        const result = await cloudinary.uploader.upload(req.file.path, {
+          folder: 'shop_logos',
+          use_filename: true,
+          unique_filename: true,
+        });
+        
+        logoUrl = result.secure_url;
+        
+        // Supprimer le fichier temporaire
+        fs.unlinkSync(req.file.path);
+      } catch (cloudinaryError) {
+        console.error('Erreur lors de l\'upload du logo vers Cloudinary:', cloudinaryError);
+        return next({
+          name: 'CloudinaryError',
+          message: shopErrors.update.uploadFailed,
+          details: cloudinaryError.message,
+          status: 500
+        });
+      }
+    }
     
     // Mettre à jour la boutique avec les nouvelles données
     const updatedShop = await prisma.shop.update({
@@ -242,32 +332,30 @@ export const updateShop = async (req, res) => {
         description: description || shop.description,
         phoneNumber: phoneNumber || shop.phoneNumber,
         address: address || shop.address,
-        logo
+        logo: logoUrl
       }
     });
   
     return res.status(200).json({
+      status: 'success',
       message: "Boutique mise à jour avec succès",
       shop: updatedShop
     });
   } catch (error) {
-    console.error("Erreur lors de la mise à jour de la boutique:", error);
-    
-    // Gérer l'erreur de numéro de téléphone en double
+    // Gestion spécifique de l'erreur de numéro de téléphone en double
     if (error.code === 'P2002' && error.meta?.target?.includes('phoneNumber')) {
       return res.status(400).json({ 
-        message: "Ce numéro de téléphone est déjà utilisé par une autre boutique" 
+        status: 'error',
+        code: 'PHONE_EXISTS',
+        message: shopErrors.update.phoneNumberExists
       });
     }
     
-    return res.status(500).json({
-      message: "Une erreur est survenue lors de la mise à jour de la boutique",
-      error: error.message
-    });
+    next(error);
   }
 };
 
-export const getAllShops = async (req, res) => {
+export const getAllShops = async (req, res, next) => {
   try {
     // Récupérer toutes les boutiques depuis la base de données
     const shops = await prisma.shop.findMany({
@@ -282,27 +370,27 @@ export const getAllShops = async (req, res) => {
       }
     });
     
-    // Retourner les boutiques trouvées
     return res.status(200).json({
+      status: 'success',
       message: shops.length > 0 ? "Liste des boutiques récupérée avec succès" : "Aucune boutique disponible",
       shops
     });
   } catch (error) {
-    console.error("Erreur lors de la récupération des boutiques:", error);
-    return res.status(500).json({
-      message: "Une erreur est survenue lors de la récupération des boutiques",
-      error: error.message
-    });
+    next(error);
   }
 };
 
-export const deleteShop = async (req, res) => {
+export const deleteShop = async (req, res, next) => {
   try {
     const { id } = req.params;
     const shopId = parseInt(id, 10);
     
     if (isNaN(shopId)) {
-      return res.status(400).json({ message: "ID de boutique invalide" });
+      return res.status(400).json({ 
+        status: 'error',
+        code: 'INVALID_ID',
+        message: shopErrors.retrieval.invalidId
+      });
     }
     
     const userId = req.user.id;
@@ -313,14 +401,70 @@ export const deleteShop = async (req, res) => {
     });
     
     if (!shop) {
-      return res.status(404).json({ message: "Boutique non trouvée" });
+      return res.status(404).json({ 
+        status: 'error',
+        code: 'SHOP_NOT_FOUND',
+        message: shopErrors.retrieval.notFound
+      });
     }
     
     if (shop.userId !== userId) {
-      return res.status(403).json({ message: "Vous n'êtes pas autorisé à supprimer cette boutique" });
+      return res.status(403).json({ 
+        status: 'error',
+        code: 'NOT_AUTHORIZED',
+        message: shopErrors.deletion.notAuthorized
+      });
     }
     
-    // Supprimer tous les produits liés à cette boutique
+    // Supprimer le logo de la boutique de Cloudinary si présent
+    if (shop.logo && shop.logo.includes('cloudinary.com')) {
+      try {
+        // Extraire l'ID public de l'URL Cloudinary
+        const publicId = shop.logo.split('/').pop().split('.')[0];
+        if (publicId) {
+          await cloudinary.uploader.destroy(`shop_logos/${publicId}`);
+        }
+      } catch (cloudinaryError) {
+        console.error('Erreur lors de la suppression du logo:', cloudinaryError);
+        // Continuer malgré l'erreur
+      }
+    }
+    
+    // Récupérer et supprimer les images des produits de Cloudinary
+    const products = await prisma.product.findMany({
+      where: { shopId: shopId },
+      include: { images: true }
+    });
+    
+    // Supprimer toutes les images de produit de Cloudinary
+    for (const product of products) {
+      if (product.images && product.images.length > 0) {
+        for (const image of product.images) {
+          if (image.url && image.url.includes('cloudinary.com')) {
+            try {
+              const publicId = image.url.split('/').pop().split('.')[0];
+              if (publicId) {
+                await cloudinary.uploader.destroy(`product_images/${publicId}`);
+              }
+            } catch (cloudinaryError) {
+              console.error('Erreur lors de la suppression d\'une image de produit:', cloudinaryError);
+              // Continuer malgré l'erreur
+            }
+          }
+        }
+      }
+    }
+    
+    // Supprimer d'abord les images de produit
+    await prisma.productImage.deleteMany({
+      where: {
+        product: {
+          shopId: shopId
+        }
+      }
+    });
+    
+    // Supprimer ensuite les produits
     await prisma.product.deleteMany({
       where: { shopId: shopId }
     });
@@ -331,23 +475,25 @@ export const deleteShop = async (req, res) => {
     });
     
     return res.status(200).json({
+      status: 'success',
       message: "Boutique et tous ses produits supprimés avec succès"
     });
   } catch (error) {
-    console.error("Erreur lors de la suppression de la boutique:", error);
-    return res.status(500).json({
-      message: "Une erreur est survenue lors de la suppression de la boutique",
-      error: error.message
-    });
+    next(error);
   }
 };
-export const getShopWithMerchantDetails = async (req, res) => {
+
+export const getShopWithMerchantDetails = async (req, res, next) => {
   try {
     const { id } = req.params;
     const shopId = parseInt(id, 10);
     
     if (isNaN(shopId)) {
-      return res.status(400).json({ message: "ID de boutique invalide" });
+      return res.status(400).json({ 
+        status: 'error',
+        code: 'INVALID_ID',
+        message: shopErrors.retrieval.invalidId
+      });
     }
     
     // Récupérer la boutique avec les infos détaillées du commerçant
@@ -360,7 +506,7 @@ export const getShopWithMerchantDetails = async (req, res) => {
             firstName: true,
             lastName: true,
             email: true,
-            phoneNumber: true, // ✅ Correction ici
+            phoneNumber: true,
             photo: true,
             createdAt: true,
           }
@@ -368,9 +514,12 @@ export const getShopWithMerchantDetails = async (req, res) => {
       }
     });
     
-    
     if (!shop) {
-      return res.status(404).json({ message: "Boutique non trouvée" });
+      return res.status(404).json({ 
+        status: 'error',
+        code: 'SHOP_NOT_FOUND',
+        message: shopErrors.retrieval.notFound
+      });
     }
 
     // Récupérer les produits de cette boutique
@@ -394,30 +543,28 @@ export const getShopWithMerchantDetails = async (req, res) => {
     const merchantStats = {
       totalProducts,
       memberSince: shop.owner.createdAt,
-      // Vous pouvez ajouter d'autres statistiques ici
     };
 
-    // Retourner la boutique avec les infos du commerçant
     return res.status(200).json({
+      status: 'success',
       message: "Informations de la boutique et du commerçant récupérées avec succès",
       shop,
       products,
       merchantStats
     });
   } catch (error) {
-    console.error("Erreur lors de la récupération des informations:", error);
-    return res.status(500).json({
-      message: "Une erreur est survenue lors de la récupération des informations",
-      error: error.message
-    });
+    next(error);
   }
 };
-export const contactMerchant = async (req, res) => {
+
+export const contactMerchant = async (req, res, next) => {
   try {
     // Vérifier si l'utilisateur est connecté
     if (!req.user) {
       return res.status(401).json({ 
-        message: "Vous devez être connecté pour contacter un commerçant" 
+        status: 'error',
+        code: 'NOT_AUTHENTICATED',
+        message: shopErrors.contact.notAuthenticated
       });
     }
 
@@ -430,14 +577,20 @@ export const contactMerchant = async (req, res) => {
     // Validation des entrées
     if (!subject || !message) {
       return res.status(400).json({
-        message: "Le sujet et le message sont obligatoires"
+        status: 'error',
+        code: 'MISSING_FIELDS',
+        message: shopErrors.contact.missingFields
       });
     }
 
     // Conversion du shopId en nombre et vérification
     const shopIdInt = parseInt(shopId, 10);
     if (isNaN(shopIdInt)) {
-      return res.status(400).json({ message: "ID de boutique invalide" });
+      return res.status(400).json({ 
+        status: 'error',
+        code: 'INVALID_ID',
+        message: shopErrors.retrieval.invalidId
+      });
     }
 
     // Récupérer la boutique avec les informations du propriétaire
@@ -456,13 +609,19 @@ export const contactMerchant = async (req, res) => {
     });
 
     if (!shop) {
-      return res.status(404).json({ message: "Boutique non trouvée" });
+      return res.status(404).json({ 
+        status: 'error',
+        code: 'SHOP_NOT_FOUND',
+        message: shopErrors.retrieval.notFound
+      });
     }
 
     // Vérifier que l'utilisateur ne contacte pas sa propre boutique
     if (shop.owner.id === userId) {
       return res.status(400).json({ 
-        message: "Vous ne pouvez pas envoyer un message à votre propre boutique" 
+        status: 'error',
+        code: 'SELF_CONTACT',
+        message: shopErrors.contact.selfContact
       });
     }
 
@@ -472,22 +631,27 @@ export const contactMerchant = async (req, res) => {
         shopId: shopIdInt,
         merchantId: shop.owner.id,
         subject,
-        senderEmail: email, // Email de l'utilisateur connecté
+        senderEmail: email,
         message,
         status: 'UNREAD'
       }
     });
 
     // Envoyer l'email au commerçant
-    await sendContactMerchantEmail(
-      shop.owner.email,  // Email du commerçant (destinataire)
-      subject,           // Sujet du message
-      email,             // Email de l'utilisateur connecté
-      message,           // Message
-      shop.name          // Nom de la boutique
-    );
+    try {
+      await sendContactMerchantEmail(
+        shop.owner.email,
+        subject,
+        email,
+        message,
+        shop.name
+      );
+    } catch (emailError) {
+      console.error('Erreur lors de l\'envoi du mail au commerçant:', emailError);
+      // Continuer malgré l'erreur d'email
+    }
 
-    // Créer une notification pour le commerçant avec des informations personnelles
+    // Créer une notification pour le commerçant
     await createNotification({
       userId: shop.owner.id,
       type: "MESSAGE",
@@ -501,18 +665,18 @@ export const contactMerchant = async (req, res) => {
     // Envoyer un email de confirmation au client
     try {
       await sendConfirmationToCustomer(
-        email,                // Email de l'utilisateur connecté
-        subject,              // Sujet du message
-        shop.name,            // Nom de la boutique
-        shop.owner.firstName  // Prénom du commerçant
+        email,
+        subject,
+        shop.name,
+        shop.owner.firstName
       );
     } catch (emailError) {
       console.error("Erreur email de confirmation :", emailError);
-      // On continue même si l'email de confirmation échoue
+      // Continuer malgré l'erreur d'email de confirmation
     }
 
     return res.status(200).json({
-      success: true,
+      status: 'success',
       message: "Votre message a été envoyé avec succès au commerçant",
       contact: {
         id: contactMessage.id,
@@ -520,20 +684,18 @@ export const contactMerchant = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error("Erreur:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Une erreur est survenue lors de l'envoi du message",
-      error: error.message
-    });
+    next(error);
   }
 };
-export const respondToContactMessage = async (req, res) => {
+
+export const respondToContactMessage = async (req, res, next) => {
   try {
-    // Vérifier si l'utilisateur est connecté et est le propriétaire de la boutique
+    // Vérifier si l'utilisateur est connecté
     if (!req.user) {
       return res.status(401).json({
-        message: "Vous devez être connecté pour répondre à un message"
+        status: 'error',
+        code: 'NOT_AUTHENTICATED',
+        message: shopErrors.contact.notAuthenticated
       });
     }
 
@@ -543,14 +705,20 @@ export const respondToContactMessage = async (req, res) => {
     // Validation des entrées
     if (!response) {
       return res.status(400).json({
-        message: "La réponse est obligatoire"
+        status: 'error',
+        code: 'MISSING_RESPONSE',
+        message: shopErrors.contact.missingResponse
       });
     }
 
     // Convertir contactId en nombre
     const contactIdInt = parseInt(contactId, 10);
     if (isNaN(contactIdInt)) {
-      return res.status(400).json({ message: "ID de contact invalide" });
+      return res.status(400).json({ 
+        status: 'error',
+        code: 'INVALID_MESSAGE_ID',
+        message: shopErrors.contact.invalidMessageId
+      });
     }
 
     // Récupérer le message de contact original
@@ -567,13 +735,19 @@ export const respondToContactMessage = async (req, res) => {
 
     // Vérifier que le message existe
     if (!originalContact) {
-      return res.status(404).json({ message: "Message de contact non trouvé" });
+      return res.status(404).json({ 
+        status: 'error',
+        code: 'MESSAGE_NOT_FOUND',
+        message: "Message de contact non trouvé"
+      });
     }
 
     // Vérifier que l'utilisateur connecté est bien le propriétaire de la boutique
     if (originalContact.shop.owner.id !== req.user.id) {
       return res.status(403).json({ 
-        message: "Vous n'êtes pas autorisé à répondre à ce message" 
+        status: 'error',
+        code: 'NOT_AUTHORIZED_TO_RESPOND',
+        message: shopErrors.contact.responseNotAuthorized
       });
     }
 
@@ -593,47 +767,56 @@ export const respondToContactMessage = async (req, res) => {
     });
 
     // Envoyer un email à l'utilisateur qui a envoyé le message original
-    await sendResponseEmail(
-      originalContact.senderEmail, // Email de l'expéditeur original
-      originalContact.subject,     // Sujet du message original
-      response,                    // Réponse du commerçant
-      originalContact.shop.name    // Nom de la boutique
-    );
+    try {
+      await sendResponseEmail(
+        originalContact.senderEmail,
+        originalContact.subject,
+        response,
+        originalContact.shop.name
+      );
+    } catch (emailError) {
+      console.error('Erreur lors de l\'envoi de l\'email de réponse:', emailError);
+      // Continuer malgré l'erreur d'email
+    }
 
     // Créer une notification pour l'utilisateur
-    await createNotification({
-      userId: originalContact.merchantContact.userId, // ID de l'utilisateur qui a envoyé le message
-      type: "MESSAGE_RESPONSE",
-      message: `Le commerçant a répondu à votre message concernant la boutique ${originalContact.shop.name}`,
-      resourceId: contactResponse.id,
-      resourceType: "MerchantContactResponse",
-       redirectUrl: `/dashboard/messages/${contactResponse.id}`,
-      priority: 1
-    });
+    try {
+      await createNotification({
+        userId: originalContact.senderId, // ID de l'utilisateur qui a envoyé le message
+        type: "MESSAGE_RESPONSE",
+        message: `Le commerçant a répondu à votre message concernant la boutique ${originalContact.shop.name}`,
+        resourceId: contactResponse.id,
+        resourceType: "MerchantContactResponse",
+        redirectUrl: `/dashboard/messages/${contactResponse.id}`,
+        priority: 1
+      });
+    } catch (notifError) {
+      console.error('Erreur lors de la création de la notification:', notifError);
+      // Continuer malgré l'erreur de notification
+    }
 
     return res.status(200).json({
-      success: true,
+      status: 'success',
       message: "Votre réponse a été envoyée avec succès",
       response: {
         id: contactResponse.id,
         createdAt: contactResponse.createdAt
       }
     });
-
   } catch (error) {
-    console.error("Erreur lors de la réponse au message:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Une erreur est survenue lors de l'envoi de la réponse",
-      error: error.message
-    });
+    next(error);
   }
 };
-export const getAllUserMessages = async (req, res) => {
+
+export const getAllUserMessages = async (req, res, next) => {
   try {
     // Vérifier que l'utilisateur est connecté
     if (!req.user) {
-      return res.status(401).json({ message: "Non autorisé" });
+      return res.status(401).json({ 
+        status: 'error',
+        code: 'NOT_AUTHENTICATED',
+        message: shopErrors.contact.notAuthenticated
+      });
     }
 
     // Récupérer les messages en fonction du rôle de l'utilisateur
@@ -665,15 +848,11 @@ export const getAllUserMessages = async (req, res) => {
     });
 
     return res.status(200).json({
+      status: 'success',
       messages,
       totalCount: messages.length
     });
   } catch (error) {
-    console.error("Erreur lors de la récupération des messages:", error);
-    return res.status(500).json({ 
-      message: "Erreur lors de la récupération des messages" 
-    });
+    next(error);
   }
 };
-
-// Fonction pour notifier un commerçant qu'un client lui a laissé un message

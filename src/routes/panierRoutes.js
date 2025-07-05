@@ -6,7 +6,7 @@ import {
   updateCartItem,
   removeFromCart,
   clearCart,
-  shareCartViaWhatsApp,
+  shareCartViaMessage,
   createOrderFromCart
 } from '../controllers/panierController.js';
 
@@ -29,6 +29,6 @@ router.delete('/cart/items/:itemId', authenticate, removeFromCart);
 router.delete('/cart', authenticate, clearCart);
 
 // Partager le panier via WhatsApp
-router.post('/cart/share/whatsapp', authenticate, shareCartViaWhatsApp);
+router.post('/cart/share/whatsapp', authenticate, shareCartViaMessage);
 
 export default router;

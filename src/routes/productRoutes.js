@@ -13,7 +13,8 @@ import {
   getProductCategories,
   getFeaturedProducts,
   getProductStats,
-  getRelatedProducts
+  getRelatedProducts,
+  updateProductWithImages
 } from '../controllers/ProductController.js';
 import { authenticate, isMerchant } from '../middlewares/authMiddleware.js';
 import upload from '../utils/multer.js';
@@ -33,13 +34,23 @@ router.get('/:id/related', getRelatedProducts);
 router.get('/:id', getProductById);
 
 
-router.post('/', 
-  authenticate, 
-  isMerchant, 
-  upload.uploadProductMedia, 
-  upload.checkFileSizeLimits, 
+// ✅ Route corrigée
+// Ancien
+router.post('/',
+  authenticate,
+  isMerchant,
+  upload.debugFileUpload,
+  upload.uploadProductMedia,
+  upload.checkFileSizeLimits,
   createProduct
 );
+router.put('/:id/update-with-images', 
+  authenticate, 
+  upload.uploadProductMedia, // ✅ Utiliser votre middleware existant
+  upload.checkFileSizeLimits,
+  updateProductWithImages
+);
+
 router.put('/:id', authenticate, upload.uploadProductMedia, upload.checkFileSizeLimits, updateProduct);
 router.patch('/:id/stock', authenticate, updateProductStock);
 router.delete('/:id', authenticate, deleteProduct);
