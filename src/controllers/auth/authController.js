@@ -1,3 +1,5 @@
+// authController.js - Adapté pour onboarding progressif avec votre structure
+
 import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
@@ -8,27 +10,90 @@ import { authErrors, userErrors, serverErrors } from '../../utils/errorMessages.
 
 const prisma = new PrismaClient();
 
+// ===============================================
+// 📊 FONCTIONS UTILITAIRES ONBOARDING
+// ===============================================
+
+const calculateProfileCompletion = (user) => {
+  const fields = [
+    'email', 'firstName', 'lastName', 'phoneNumber', 
+    'country', 'city', 'photo'
+  ];
+  
+  const completedFields = fields.filter(field => 
+    user[field] && user[field].toString().trim() !== ''
+  ).length;
+  
+  return Math.round((completedFields / fields.length) * 100);
+};
+
+const getNextOnboardingStep = (user) => {
+  if (!user.firstName || !user.lastName) return 'personal_info';
+  if (!user.phoneNumber) return 'contact_info';
+  if (!user.country || !user.city) return 'address_info';
+  if (!user.photo) return 'profile_photo';
+  return 'completed';
+};
+
+const determineOnboardingStep = (user) => {
+  if (!user.isVerified) return 'email_verification';
+  if (!user.firstName || !user.lastName) return 'personal_info';
+  if (!user.phoneNumber) return 'contact_info';
+  if (!user.country || !user.city) return 'address_info';
+  if (!user.photo) return 'profile_photo';
+  return 'completed';
+};
+
 // Fonction pour générer un code de vérification
 const generateVerificationCode = () => {
   return crypto.randomBytes(3).toString('hex'); // Code de 6 caractères
 };
 
-// Fonction pour l'inscription
+// ===============================================
+// 🚀 INSCRIPTION ADAPTÉE (2 MODES)
+// ===============================================
+
 export const registerUser = async (req, res, next) => {
-  const { email, firstName, lastName, phoneNumber, password, country, city, department, commune, role } = req.body;
+  const { 
+    email, 
+    password, 
+    role,
+    // Champs optionnels pour compatibilité avec votre frontend actuel
+    firstName, 
+    lastName, 
+    phoneNumber, 
+    country, 
+    city, 
+    department, 
+    commune 
+  } = req.body;
+  
   let photoUrl = null;
 
   try {
+    console.log('📧 Inscription pour:', email);
+    console.log('📝 Champs reçus:', { 
+      firstName, lastName, phoneNumber, country, city 
+    });
+
+    // 🔍 MODE 1: Si seulement email + password = INSCRIPTION SIMPLE
+    const isSimpleRegistration = !firstName && !lastName && !phoneNumber;
+    
+    if (isSimpleRegistration) {
+      console.log('🎯 Mode inscription simple (Jumia style)');
+    } else {
+      console.log('📋 Mode inscription complète (votre style actuel)');
+    }
+
     // Vérifier si un fichier a été uploadé
     if (req.file) {
       try {
-        // Upload de l'image vers Cloudinary
         const result = await cloudinary.uploader.upload(req.file.path, {
           folder: 'profile_photos', 
           use_filename: true,
           unique_filename: true,
         });
-        photoUrl = result.secure_url; // URL sécurisée de l'image
+        photoUrl = result.secure_url;
       } catch (cloudinaryError) {
         return next({
           name: 'CloudinaryError',
@@ -39,45 +104,45 @@ export const registerUser = async (req, res, next) => {
       }
     }
 
-    // Vérifier si le numéro de téléphone existe déjà
-    const existingPhoneUser = await prisma.user.findUnique({
-      where: { phoneNumber }
-    });
-    
-    if (existingPhoneUser) {
-      if (existingPhoneUser.verificationCode === '1') {
-        // Si le code est 1, refuser l'inscription
-        return res.status(400).json({ 
-          status: 'error',
-          code: 'PHONE_EXISTS',
-          message: authErrors.registration.phoneExists
-        });
-      } else {
-        // Si le code n'est pas 1, supprimer l'ancien utilisateur
-        await prisma.user.delete({
-          where: { id: existingPhoneUser.id }
-        });
-      }
-    }
-
     // Vérifier si l'email existe déjà
     const existingEmailUser = await prisma.user.findUnique({
       where: { email }
     });
     
     if (existingEmailUser) {
-      if (existingEmailUser.verificationCode === '1') {
-        // Si le code est 1, refuser l'inscription
+      if (existingEmailUser.isVerified) {
         return res.status(400).json({ 
           status: 'error',
           code: 'EMAIL_EXISTS',
           message: authErrors.registration.emailExists
         });
       } else {
-        // Si le code n'est pas 1, supprimer l'ancien utilisateur
+        // Supprimer l'ancien utilisateur non vérifié
         await prisma.user.delete({
           where: { id: existingEmailUser.id }
         });
+      }
+    }
+
+    // Vérifier le téléphone seulement s'il est fourni
+    if (phoneNumber) {
+      const existingPhoneUser = await prisma.user.findUnique({
+        where: { phoneNumber }
+      });
+      
+      if (existingPhoneUser) {
+        if (existingPhoneUser.isVerified) {
+          return res.status(400).json({ 
+            status: 'error',
+            code: 'PHONE_EXISTS',
+            message: authErrors.registration.phoneExists
+          });
+        } else {
+          // Supprimer l'ancien utilisateur non vérifié
+          await prisma.user.delete({
+            where: { id: existingPhoneUser.id }
+          });
+        }
       }
     }
 
@@ -87,35 +152,60 @@ export const registerUser = async (req, res, next) => {
 
     // Générer un code de vérification
     const verificationCode = generateVerificationCode();
-    const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 heures
+    const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-    // Convertir le rôle pour s'assurer qu'il est accepté par Prisma
-    let userRole;
+    // Convertir le rôle
+    let userRole = 'CLIENT'; // Défaut
     if (role === 'CLIENT' || role === 'MERCHANT' || role === 'SUPPLIER') {
       userRole = role;
-    } else {
-      // Valeur par défaut si le rôle n'est pas reconnu
-      userRole = 'MERCHANT';
     }
 
-    // Création de l'utilisateur avec le rôle converti
+    // 🎯 CALCUL AUTOMATIQUE DU STEP ET COMPLETION
+    const baseCompletion = 20; // Email + password
+    let profileCompletion = baseCompletion;
+    let onboardingStep = 'email_verification';
+
+    // Ajouter à la completion selon les champs fournis
+    if (firstName && lastName) profileCompletion += 20;
+    if (phoneNumber) profileCompletion += 20;
+    if (country && city) profileCompletion += 20;
+    if (photoUrl) profileCompletion += 20;
+
+    // Déterminer l'étape après vérification email
+    let nextStepAfterVerification = 'personal_info';
+    if (firstName && lastName && phoneNumber && country && city) {
+      nextStepAfterVerification = photoUrl ? 'completed' : 'profile_photo';
+    } else if (firstName && lastName && phoneNumber) {
+      nextStepAfterVerification = 'address_info';
+    } else if (firstName && lastName) {
+      nextStepAfterVerification = 'contact_info';
+    }
+
+    // 🏗️ CRÉATION UTILISATEUR FLEXIBLE
+    const userData = {
+      email,
+      password: hashedPassword,
+      role: userRole,
+      verificationCode,
+      tokenExpiry,
+      isVerified: false,
+      onboardingStep,
+      profileCompletion,
+      isProfileCompleted: profileCompletion >= 100
+    };
+
+    // Ajouter les champs optionnels s'ils sont fournis
+    if (firstName) userData.firstName = firstName;
+    if (lastName) userData.lastName = lastName;
+    if (phoneNumber) userData.phoneNumber = phoneNumber;
+    if (country) userData.country = country;
+    if (city) userData.city = city;
+    if (department) userData.department = department;
+    if (commune) userData.commune = commune;
+    if (photoUrl) userData.photo = photoUrl;
+
     const newUser = await prisma.user.create({
-      data: {
-        email,
-        firstName,
-        lastName,
-        phoneNumber,
-        password: hashedPassword,
-        country,
-        city,
-        department,
-        commune,
-        photo: photoUrl, // Utiliser l'URL Cloudinary
-        role: userRole, // Utiliser le rôle converti
-        verificationCode,
-        tokenExpiry,
-        isVerified: false,
-      },
+      data: userData
     });
 
     // Envoyer l'email de vérification
@@ -124,36 +214,59 @@ export const registerUser = async (req, res, next) => {
     } catch (emailError) {
       console.error('Erreur d\'envoi d\'email:', emailError);
       
-      // En mode développement ou test, renvoyer le code de vérification
       if (process.env.NODE_ENV !== 'production') {
         return res.status(201).json({
           status: 'success',
-          message: "Inscription réussie mais erreur d'envoi d'email. Code de vérification pour test:",
+          message: "Inscription réussie mais erreur d'envoi d'email",
           email: email,
-          testVerificationCode: verificationCode // Uniquement pour les tests
+          testVerificationCode: verificationCode,
+          registrationType: isSimpleRegistration ? 'simple' : 'complete',
+          onboarding: {
+            step: 'email_verification',
+            nextStepAfterVerification,
+            progress: profileCompletion
+          }
         });
       }
       
-      // En production, informer de l'erreur d'email mais l'inscription est réussie
       return res.status(201).json({
         status: 'partial_success',
         code: 'EMAIL_FAILED',
-        message: "Inscription réussie mais erreur lors de l'envoi de l'email de vérification. Veuillez utiliser la fonction 'Renvoyer le code'.",
-        email: email
+        message: "Inscription réussie mais erreur lors de l'envoi de l'email de vérification",
+        email: email,
+        onboarding: {
+          step: 'email_verification',
+          progress: profileCompletion
+        }
       });
     }
 
-    res.status(201).json({
+    // 🎯 RÉPONSE ADAPTÉE AU TYPE D'INSCRIPTION
+    const response = {
       status: 'success',
-      message: "Un code de vérification a été envoyé à votre email. Veuillez le saisir pour terminer votre inscription.",
-      email: email
-    });
+      message: "Un code de vérification a été envoyé à votre email",
+      email: email,
+      registrationType: isSimpleRegistration ? 'simple' : 'complete',
+      onboarding: {
+        step: 'email_verification',
+        nextStepAfterVerification,
+        progress: profileCompletion,
+        isSimple: isSimpleRegistration
+      }
+    };
+
+    res.status(201).json(response);
+
   } catch (error) {
+    console.error('❌ Erreur inscription:', error);
     next(error);
   }
 };
 
-// Fonction pour vérifier le code et finaliser l'inscription
+// ===============================================
+// ✅ VÉRIFICATION EMAIL AVEC AUTO-LOGIN
+// ===============================================
+
 export const verifyCodeAndCompleteRegistration = async (req, res, next) => {
   const { email, verificationCode } = req.body;
 
@@ -166,7 +279,6 @@ export const verifyCodeAndCompleteRegistration = async (req, res, next) => {
       });
     }
 
-    // Vérifier si l'utilisateur existe
     const user = await prisma.user.findUnique({
       where: { email },
     });
@@ -179,7 +291,6 @@ export const verifyCodeAndCompleteRegistration = async (req, res, next) => {
       });
     }
 
-    // Vérifier si le code a expiré
     if (user.tokenExpiry && new Date() > user.tokenExpiry) {
       return res.status(400).json({ 
         status: 'error',
@@ -188,7 +299,6 @@ export const verifyCodeAndCompleteRegistration = async (req, res, next) => {
       });
     }
 
-    // Vérifier si le code de vérification est correct
     if (user.verificationCode !== verificationCode) {
       return res.status(400).json({ 
         status: 'error',
@@ -197,51 +307,84 @@ export const verifyCodeAndCompleteRegistration = async (req, res, next) => {
       });
     }
 
-    // Mettre à jour l'utilisateur comme vérifié et définir son mot de passe
+    // 🔄 CALCUL DU PROCHAIN STEP APRÈS VÉRIFICATION
+    const nextStep = getNextOnboardingStep(user);
+    const profileCompletion = calculateProfileCompletion(user);
+    const isProfileComplete = nextStep === 'completed';
+
+    // ✅ MISE À JOUR UTILISATEUR
     const updatedUser = await prisma.user.update({
       where: { email },
       data: {
         isVerified: true,
         verificationCode: null,
-        tokenExpiry: null
+        tokenExpiry: null,
+        onboardingStep: isProfileComplete ? 'completed' : nextStep,
+        profileCompletion,
+        isProfileCompleted: isProfileComplete
       },
     });
 
-    // Envoyer un email de bienvenue
+    // 🎯 GÉNÉRATION TOKEN POUR AUTO-LOGIN
+    const token = jwt.sign(
+      { 
+        userId: updatedUser.id, 
+        email: updatedUser.email, 
+        role: updatedUser.role 
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+
+    // Email de bienvenue
     try {
-      await sendWelcomeEmail(updatedUser.email, updatedUser.firstName);
+      await sendWelcomeEmail(updatedUser.email, updatedUser.firstName || 'Nouvel utilisateur');
     } catch (emailError) {
-      console.error('Erreur lors de l\'envoi de l\'email de bienvenue:', emailError);
-      // Continuer malgré l'erreur d'email de bienvenue
+      console.error('Erreur email bienvenue:', emailError);
     }
 
+    // 🎉 RÉPONSE AVEC TOKEN ET INFOS ONBOARDING
     res.status(200).json({ 
       status: 'success',
-      message: 'Inscription terminée, bienvenue!',
+      message: 'Email vérifié avec succès !',
+      token, // 🔑 TOKEN POUR CONNEXION AUTOMATIQUE
       user: {
         id: updatedUser.id,
         email: updatedUser.email,
         firstName: updatedUser.firstName,
         lastName: updatedUser.lastName,
-        role: updatedUser.role
+        role: updatedUser.role,
+        photo: updatedUser.photo,
+        isVerified: true
+      },
+      onboarding: {
+        isRequired: !isProfileComplete,
+        nextStep: nextStep,
+        progress: profileCompletion,
+        completed: isProfileComplete,
+        message: isProfileComplete 
+          ? 'Profil complètement configuré !' 
+          : 'Complétez votre profil pour une meilleure expérience'
       }
     });
+
   } catch (error) {
     next(error);
   }
 };
 
-// Fonction de connexion
+// ===============================================
+// 🔐 LOGIN AVEC INFOS ONBOARDING
+// ===============================================
+
 export const loginUser = async (req, res, next) => {
   const { email, password } = req.body;
 
   try {
-    // Trouver l'utilisateur par email
     const user = await prisma.user.findUnique({
       where: { email },
     });
 
-    // Si l'utilisateur n'existe pas
     if (!user) {
       return res.status(401).json({ 
         status: 'error',
@@ -250,11 +393,10 @@ export const loginUser = async (req, res, next) => {
       });
     }
 
-    // Si l'utilisateur n'est pas vérifié
+    // 🔍 VÉRIFICATION EMAIL
     if (!user.isVerified) {
-      // Générer un nouveau code de vérification
       const verificationCode = generateVerificationCode();
-      const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 heures
+      const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
       await prisma.user.update({
         where: { email },
@@ -264,13 +406,11 @@ export const loginUser = async (req, res, next) => {
         },
       });
 
-      // Envoyer un nouvel email de vérification
       try {
         await sendVerificationEmail(email, verificationCode);
       } catch (emailError) {
-        console.error('Erreur lors de l\'envoi de l\'email de vérification:', emailError);
+        console.error('Erreur email:', emailError);
         
-        // En mode développement, renvoyer le code de vérification
         if (process.env.NODE_ENV !== 'production') {
           return res.status(403).json({ 
             status: 'error',
@@ -278,7 +418,7 @@ export const loginUser = async (req, res, next) => {
             message: authErrors.login.notVerified,
             needsVerification: true,
             email: email,
-            testVerificationCode: verificationCode // Uniquement pour les tests
+            testVerificationCode: verificationCode
           });
         }
       }
@@ -292,7 +432,7 @@ export const loginUser = async (req, res, next) => {
       });
     }
 
-    // Vérifier le mot de passe
+    // 🔒 VÉRIFICATION MOT DE PASSE
     const passwordMatch = await bcrypt.compare(password, user.password);
     if (!passwordMatch) {
       return res.status(401).json({ 
@@ -302,13 +442,30 @@ export const loginUser = async (req, res, next) => {
       });
     }
 
-    // Générer un token JWT
+    // 🎯 MISE À JOUR LAST LOGIN
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { 
+        lastLogin: new Date(),
+        lastActive: new Date(),
+        isOnline: true
+      }
+    });
+
+    // 🔑 GÉNÉRATION TOKEN
     const token = jwt.sign(
       { userId: user.id, email: user.email, role: user.role },
       process.env.JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: '30d' }
     );
 
+    // 📊 CALCUL INFOS ONBOARDING
+    const profileCompletion = calculateProfileCompletion(user);
+    const nextStep = getNextOnboardingStep(user);
+    const currentStep = determineOnboardingStep(user);
+    const isOnboardingRequired = nextStep !== 'completed';
+
+    // 🎉 RÉPONSE AVEC INFOS ONBOARDING
     res.status(200).json({
       status: 'success',
       message: 'Connexion réussie',
@@ -318,9 +475,336 @@ export const loginUser = async (req, res, next) => {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        role: user.role
+        phoneNumber: user.phoneNumber,
+        photo: user.photo,
+        role: user.role,
+        country: user.country,
+        city: user.city,
+        profileCompletion
+      },
+      onboarding: {
+        isRequired: isOnboardingRequired,
+        currentStep,
+        nextStep,
+        progress: profileCompletion,
+        completed: !isOnboardingRequired,
+        steps: {
+          email_verification: user.isVerified,
+          personal_info: !!(user.firstName && user.lastName),
+          contact_info: !!user.phoneNumber,
+          address_info: !!(user.country && user.city),
+          profile_photo: !!user.photo
+        }
       }
     });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ===============================================
+// 👤 FONCTIONS ONBOARDING PROGRESSIF
+// ===============================================
+
+export const completePersonalInfo = async (req, res, next) => {
+  const { firstName, lastName, gender, dateOfBirth } = req.body;
+  const userId = req.user.userId;
+
+  try {
+    if (!firstName || !lastName) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Le prénom et nom sont requis'
+      });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        firstName,
+        lastName,
+        gender,
+        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+        onboardingStep: 'contact_info',
+        profileCompletion: 50
+      },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        onboardingStep: true,
+        profileCompletion: true
+      }
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Informations personnelles enregistrées',
+      user: updatedUser,
+      onboarding: {
+        isRequired: true,
+        nextStep: 'contact_info',
+        progress: 50
+      }
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const completeContactInfo = async (req, res, next) => {
+  const { phoneNumber, whatsappNumber } = req.body;
+  const userId = req.user.userId;
+
+  try {
+    if (!phoneNumber) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Le numéro de téléphone est requis'
+      });
+    }
+
+    // Vérifier unicité du téléphone
+    const existingPhone = await prisma.user.findFirst({
+      where: { 
+        phoneNumber,
+        id: { not: userId }
+      }
+    });
+
+    if (existingPhone) {
+      return res.status(400).json({
+        status: 'error',
+        code: 'PHONE_EXISTS',
+        message: 'Ce numéro de téléphone est déjà utilisé'
+      });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        phoneNumber,
+        whatsappNumber,
+        onboardingStep: 'address_info',
+        profileCompletion: 70
+      }
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Informations de contact enregistrées',
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        phoneNumber: updatedUser.phoneNumber
+      },
+      onboarding: {
+        isRequired: true,
+        nextStep: 'address_info',
+        progress: 70
+      }
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const completeAddressInfo = async (req, res, next) => {
+  const { country, city, department, commune, address } = req.body;
+  const userId = req.user.userId;
+
+  try {
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        country,
+        city,
+        department,
+        commune,
+        address,
+        onboardingStep: 'profile_photo',
+        profileCompletion: 85
+      }
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Adresse enregistrée',
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        city: updatedUser.city,
+        country: updatedUser.country
+      },
+      onboarding: {
+        isRequired: true,
+        nextStep: 'profile_photo',
+        progress: 85,
+        canSkip: true
+      }
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const completeProfilePhoto = async (req, res, next) => {
+  const userId = req.user.userId;
+  let photoUrl = null;
+
+  try {
+    if (req.file) {
+      try {
+        const result = await cloudinary.uploader.upload(req.file.path, {
+          folder: 'profile_photos',
+          public_id: `user_${userId}_${Date.now()}`,
+          transformation: [
+            { width: 400, height: 400, crop: 'fill', quality: 'auto' }
+          ]
+        });
+        photoUrl = result.secure_url;
+      } catch (cloudinaryError) {
+        return next({
+          name: 'CloudinaryError',
+          message: 'Erreur lors de l\'upload de l\'image',
+          details: cloudinaryError.message,
+          status: 500
+        });
+      }
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        photo: photoUrl,
+        onboardingStep: 'completed',
+        profileCompletion: 100,
+        isProfileCompleted: true
+      }
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Profil complété avec succès !',
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        photo: updatedUser.photo
+      },
+      onboarding: {
+        isRequired: false,
+        completed: true,
+        progress: 100
+      }
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const skipOnboardingStep = async (req, res, next) => {
+  const { step } = req.body;
+  const userId = req.user.userId;
+
+  try {
+    const stepMapping = {
+      'profile_photo': { next: 'completed', completion: 90, profileCompleted: true },
+      'address_info': { next: 'profile_photo', completion: 70, profileCompleted: false }
+    };
+
+    const stepInfo = stepMapping[step];
+    if (!stepInfo) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Étape non trouvée ou non ignorable'
+      });
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        onboardingStep: stepInfo.next,
+        profileCompletion: stepInfo.completion,
+        isProfileCompleted: stepInfo.profileCompleted
+      }
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Étape ignorée',
+      onboarding: {
+        nextStep: stepInfo.next,
+        progress: stepInfo.completion,
+        completed: stepInfo.next === 'completed'
+      }
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getOnboardingStatus = async (req, res, next) => {
+  try {
+    const userId = req.user.userId;
+    
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phoneNumber: true,
+        country: true,
+        city: true,
+        photo: true,
+        onboardingStep: true,
+        profileCompletion: true,
+        isProfileCompleted: true
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Utilisateur non trouvé'
+      });
+    }
+
+    const nextStep = getNextOnboardingStep(user);
+    const completion = calculateProfileCompletion(user);
+
+    res.status(200).json({
+      status: 'success',
+      user,
+      onboarding: {
+        isRequired: nextStep !== 'completed',
+        currentStep: user.onboardingStep,
+        nextStep,
+        progress: completion,
+        steps: {
+          email_verification: true,
+          personal_info: !!(user.firstName && user.lastName),
+          contact_info: !!user.phoneNumber,
+          address_info: !!(user.country && user.city),
+          profile_photo: !!user.photo
+        }
+      }
+    });
+
   } catch (error) {
     next(error);
   }

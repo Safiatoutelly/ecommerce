@@ -19,6 +19,21 @@ enum UserRole {
   MERCHANT
   CLIENT
   SUPPLIER
+  ADMIN  // Ajout pour administration
+}
+enum OnboardingStep {
+  email_verification  // Étape 1: Vérification email
+  personal_info      // Étape 2: Nom, prénom
+  contact_info       // Étape 3: Téléphone
+  address_info       // Étape 4: Adresse
+  profile_photo      // Étape 5: Photo (optionnelle)
+  completed          // Onboarding terminé
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
 }
 enum ProductStatus {
   DRAFT     // Brouillon
@@ -97,29 +112,67 @@ model MerchantContactResponse {
 // Utilisateur
 model User {
   id               Int           @id @default(autoincrement())
-  firstName        String
-  lastName         String
-  phoneNumber      String         @unique
+  
+  // === ÉTAPE 1: INSCRIPTION MINIMALE (OBLIGATOIRE) ===
   email            String         @unique
   password         String
-  country          String
-  city             String
-  department       String
-  isOnline         Boolean       @default(false)  // ← AJOUT
-  commune          String
-  resetCode        String? 
-  role             UserRole @default(CLIENT) 
-   cart             Cart?
- googleId         String?       @unique
-  photo            String?  
-  isVerified       Boolean        @default(false) 
-  isProfileCompleted Boolean @default(false)
-  verificationCode String?  
+  role             UserRole       @default(CLIENT)
+  
+  // === VÉRIFICATION & SÉCURITÉ ===
+  isVerified       Boolean        @default(false)
+  verificationCode String?
   tokenExpiry      DateTime?
+  resetCode        String?
+  googleId         String?        @unique
+  
+  // === ONBOARDING PROGRESSIF ===
+  onboardingStep     OnboardingStep @default(email_verification)
+  profileCompletion  Int            @default(20) // % de completion
+  isProfileCompleted Boolean        @default(false)
+  
+  // === ÉTAPE 2: INFORMATIONS PERSONNELLES (OPTIONNELLES) ===
+  firstName        String?        // 🎯 Maintenant optionnel
+  lastName         String?        // 🎯 Maintenant optionnel
+  gender           Gender?        // Nouveau champ
+  dateOfBirth      DateTime?      // Nouveau champ
+  
+  // === ÉTAPE 3: CONTACT (OPTIONNELLES) ===
+  phoneNumber      String?        @unique // 🎯 Maintenant optionnel
+  whatsappNumber   String?        // Nouveau champ
+  
+  // === ÉTAPE 4: ADRESSE (OPTIONNELLES) ===
+  country          String?        // 🎯 Maintenant optionnel
+  city             String?        // 🎯 Maintenant optionnel
+  department       String?        // 🎯 Maintenant optionnel
+  commune          String?        // 🎯 Maintenant optionnel
+  address          String?        // Adresse complète
+  
+  // === ÉTAPE 5: PROFIL (OPTIONNELLES) ===
+  photo            String?
+  bio              String?        // Nouveau champ
+  
+  // === PRÉFÉRENCES ===
+  language         String         @default("fr")
+  currency         String         @default("CFA")
+  timezone         String         @default("Africa/Dakar")
+  
+  // === NOTIFICATIONS ===
+  emailNotifications    Boolean   @default(true)
+  smsNotifications     Boolean   @default(false)
+  pushNotifications    Boolean   @default(true)
+  marketingEmails      Boolean   @default(false)
+  
+  // === STATUT & ACTIVITÉ ===
+  isOnline         Boolean        @default(false)
+  lastLogin        DateTime?      // Nouveau champ
+  lastActive       DateTime?      // Nouveau champ
+  
+  // === TIMESTAMPS ===
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
-  // Relations
+  // === RELATIONS (INCHANGÉES) ===
+  cart             Cart?
   shop             Shop?
   products         Product[]      @relation("UserProducts")
   orders           Order[]
@@ -130,15 +183,15 @@ model User {
   services         Service[]
   notifications    Notification[]
   statuses         Status[]
-   productComments  ProductComment[]
+  productComments  ProductComment[]
   commentReplies   CommentReply[]
   productLikes     ProductLike[]
   productShares    ProductShare[]
   receivedMerchantContacts   MerchantContact[] @relation("ReceivedMerchantContacts")
   sentMerchantContacts       MerchantContact[] @relation("SentMerchantContacts")
   merchantContactResponses   MerchantContactResponse[]
- clientFeedbacks    MerchantFeedback[] @relation("ClientFeedbacks")
-merchantFeedbacks  MerchantFeedback[] @relation("MerchantFeedbacks")
+  clientFeedbacks    MerchantFeedback[] @relation("ClientFeedbacks")
+  merchantFeedbacks  MerchantFeedback[] @relation("MerchantFeedbacks")
 }
 
 // Boutique

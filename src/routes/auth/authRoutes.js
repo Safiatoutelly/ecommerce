@@ -13,6 +13,12 @@ import { registerUser, verifyCodeAndCompleteRegistration,loginUser,
     checkVerificationStatus,
     authenticateToken,
     isAdmin,
+    completePersonalInfo,
+  completeContactInfo,
+  completeAddressInfo,
+  completeProfilePhoto,
+  skipOnboardingStep,
+  getOnboardingStatus,
     logoutUser  } from '../../controllers/auth/authController.js';
     import upload from '../../utils/multerConfig.js';
 
@@ -45,5 +51,25 @@ router.get('/verify-token', authenticateToken, verifyToken);
 // Routes admin
 router.get('/all', authenticateToken, isAdmin, getAllUsers);
 router.put('/role', authenticateToken, isAdmin, updateUserRole);
+// ===============================================
+// 🆕 NOUVELLES ROUTES ONBOARDING PROGRESSIF
+// ===============================================
 
+// 📊 Obtenir le statut d'onboarding de l'utilisateur connecté
+router.get('/onboarding/status', authenticateToken, getOnboardingStatus);
+
+// 👤 Étape 2: Compléter les informations personnelles (nom, prénom, genre, date naissance)
+router.post('/onboarding/personal', authenticateToken, completePersonalInfo);
+
+// 📱 Étape 3: Compléter les informations de contact (téléphone, WhatsApp)
+router.post('/onboarding/contact', authenticateToken, completeContactInfo);
+
+// 📍 Étape 4: Compléter l'adresse (pays, ville, département, commune, adresse complète)
+router.post('/onboarding/address', authenticateToken, completeAddressInfo);
+
+// 📸 Étape 5: Ajouter une photo de profil (optionnelle)
+router.post('/onboarding/photo', authenticateToken, upload.single('photo'), completeProfilePhoto);
+
+// ⏭️ Ignorer une étape d'onboarding (pour les étapes optionnelles)
+router.post('/onboarding/skip', authenticateToken, skipOnboardingStep);
 export default router;
