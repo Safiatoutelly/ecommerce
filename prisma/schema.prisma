@@ -1,6 +1,6 @@
 // Configuration de la base de données
 // datasource db {
-//   provider = "mysql"
+//   provider = "postgresql"
 //   url      = env("DATABASE_URL")
 // }
 datasource db {
