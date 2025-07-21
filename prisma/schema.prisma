@@ -1,31 +1,329 @@
-// Configuration de la base de données
-// datasource db {
-//   provider = "postgresql"
-//   url      = env("DATABASE_URL")
-// }
-datasource db {
-  provider = "postgresql"  // Changé de "mysql" à "postgresql"
-  url      = env("DATABASE_URL")
-}
-
 generator client {
   provider = "prisma-client-js"
 }
 
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// ///////////////////////
+/// ///////////////////////
+model MerchantContact {
+  id          Int                       @id @default(autoincrement())
+  shopId      Int
+  merchantId  Int
+  subject     String
+  senderEmail String
+  message     String
+  status      String                    @default("UNREAD")
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  merchant    User                      @relation("ReceivedMerchantContacts", fields: [merchantId], references: [id], onDelete: Cascade, map: "MerchantContact_merchant_receiver_fkey")
+  shop        Shop                      @relation(fields: [shopId], references: [id], onDelete: Cascade, map: "MerchantContact_shop_fkey")
+  responses   MerchantContactResponse[]
+}
+
+model MerchantContactResponse {
+  id                Int             @id @default(autoincrement())
+  merchantContactId Int
+  merchantId        Int
+  response          String
+  createdAt         DateTime        @default(now())
+  merchantContact   MerchantContact @relation(fields: [merchantContactId], references: [id], map: "MerchantContactResponse_merchantContact_fkey")
+  merchant          User            @relation(fields: [merchantId], references: [id], map: "MerchantContactResponse_merchant_fkey")
+}
+
+model User {
+  id                       Int                       @id @default(autoincrement())
+  email                    String                    @unique
+  password                 String
+  role                     UserRole                  @default(CLIENT)
+  isVerified               Boolean                   @default(false)
+  verificationCode         String?
+  tokenExpiry              DateTime?
+  resetCode                String?
+  googleId                 String?                   @unique
+  onboardingStep           OnboardingStep            @default(email_verification)
+  profileCompletion        Int                       @default(20)
+  isProfileCompleted       Boolean                   @default(false)
+  firstName                String?
+  lastName                 String?
+  gender                   Gender?
+  dateOfBirth              DateTime?
+  phoneNumber              String?                   @unique
+  whatsappNumber           String?
+  country                  String?
+  city                     String?
+  department               String?
+  commune                  String?
+  address                  String?
+  photo                    String?
+  bio                      String?
+  language                 String                    @default("fr")
+  currency                 String                    @default("CFA")
+  timezone                 String                    @default("Africa/Dakar")
+  emailNotifications       Boolean                   @default(true)
+  smsNotifications         Boolean                   @default(false)
+  pushNotifications        Boolean                   @default(true)
+  marketingEmails          Boolean                   @default(false)
+  isOnline                 Boolean                   @default(false)
+  lastLogin                DateTime?
+  lastActive               DateTime?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  cart                     Cart?
+  commentReplies           CommentReply[]
+  receivedMerchantContacts MerchantContact[]         @relation("ReceivedMerchantContacts")
+  merchantContactResponses MerchantContactResponse[]
+  clientFeedbacks          MerchantFeedback[]        @relation("ClientFeedbacks")
+  merchantFeedbacks        MerchantFeedback[]        @relation("MerchantFeedbacks")
+  messagesReceived         Message[]                 @relation("ReceiverMessages")
+  messagesSent             Message[]                 @relation("SenderMessages")
+  notifications            Notification[]
+  orders                   Order[]
+  products                 Product[]                 @relation("UserProducts")
+  productComments          ProductComment[]
+  productLikes             ProductLike[]
+  productShares            ProductShare[]
+  services                 Service[]
+  shop                     Shop?
+  statuses                 Status[]
+  subscriptions            Subscription[]            @relation("Follower")
+  followers                Subscription[]            @relation("Following")
+}
+
+model Shop {
+  id              Int                @id @default(autoincrement())
+  name            String
+  description     String?
+  logo            String?
+  phoneNumber     String             @unique
+  address         String?
+  userId          Int                @unique
+  verifiedBadge   Boolean            @default(false)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  contactMessages MerchantContact[]
+  feedbacks       MerchantFeedback[]
+  products        Product[]
+  owner           User               @relation(fields: [userId], references: [id])
+}
+
+model Product {
+  id            Int              @id @default(autoincrement())
+  name          String
+  description   String?
+  price         Float
+  stock         Int
+  videoUrl      String?
+  category      String
+  shopId        Int
+  userId        Int
+  status        ProductStatus    @default(DRAFT)
+  likesCount    Int              @default(0)
+  commentsCount Int              @default(0)
+  sharesCount   Int              @default(0)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  cartItems     CartItem[]
+  orderItems    OrderItem[]
+  shop          Shop             @relation(fields: [shopId], references: [id])
+  owner         User             @relation("UserProducts", fields: [userId], references: [id])
+  comments      ProductComment[]
+  images        ProductImage[]
+  likes         ProductLike[]
+  shares        ProductShare[]
+}
+
+model ProductComment {
+  id        Int            @id @default(autoincrement())
+  productId Int
+  userId    Int
+  comment   String
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  replies   CommentReply[]
+  product   Product        @relation(fields: [productId], references: [id])
+  user      User           @relation(fields: [userId], references: [id])
+}
+
+model CommentReply {
+  id        Int            @id @default(autoincrement())
+  commentId Int
+  userId    Int
+  reply     String
+  createdAt DateTime       @default(now())
+  comment   ProductComment @relation(fields: [commentId], references: [id])
+  user      User           @relation(fields: [userId], references: [id])
+}
+
+model ProductLike {
+  id        Int      @id @default(autoincrement())
+  productId Int
+  userId    Int
+  type      LikeType @default(LIKE)
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([productId, userId])
+}
+
+model ProductShare {
+  id        Int      @id @default(autoincrement())
+  productId Int
+  userId    Int
+  sharedTo  String?
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model ProductImage {
+  id        Int     @id @default(autoincrement())
+  productId Int
+  imageUrl  String  @db.VarChar(500)
+  product   Product @relation(fields: [productId], references: [id])
+}
+
+model Order {
+  id            Int                @id @default(autoincrement())
+  clientId      Int
+  totalAmount   Float
+  status        OrderStatus
+  paymentMethod PaymentMethod
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  feedbacks     MerchantFeedback[]
+  client        User               @relation(fields: [clientId], references: [id])
+  orderItems    OrderItem[]
+}
+
+model MerchantFeedback {
+  id                Int      @id @default(autoincrement())
+  orderId           Int
+  clientId          Int
+  merchantId        Int
+  shopId            Int
+  rating            Int
+  comment           String?
+  contactSuccessful Boolean
+  createdAt         DateTime @default(now())
+  client            User     @relation("ClientFeedbacks", fields: [clientId], references: [id])
+  merchant          User     @relation("MerchantFeedbacks", fields: [merchantId], references: [id])
+  order             Order    @relation(fields: [orderId], references: [id])
+  shop              Shop     @relation(fields: [shopId], references: [id])
+}
+
+model OrderItem {
+  id        Int     @id @default(autoincrement())
+  orderId   Int
+  productId Int
+  quantity  Int
+  price     Float
+  order     Order   @relation(fields: [orderId], references: [id])
+  product   Product @relation(fields: [productId], references: [id])
+}
+
+model Message {
+  id                 Int      @id @default(autoincrement())
+  senderId           Int
+  receiverId         Int
+  content            String
+  mediaUrl           String?
+  mediaType          String?
+  isRead             Boolean  @default(false)
+  deletedForSender   Boolean  @default(false)
+  deletedForReceiver Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  receiver           User     @relation("ReceiverMessages", fields: [receiverId], references: [id])
+  sender             User     @relation("SenderMessages", fields: [senderId], references: [id])
+}
+
+model Subscription {
+  id          Int      @id @default(autoincrement())
+  followerId  Int
+  followingId Int
+  createdAt   DateTime @default(now())
+  follower    User     @relation("Follower", fields: [followerId], references: [id])
+  following   User     @relation("Following", fields: [followingId], references: [id])
+}
+
+model Service {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  price       Float
+  providerId  Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  provider    User     @relation(fields: [providerId], references: [id])
+}
+
+model Notification {
+  id           Int              @id @default(autoincrement())
+  userId       Int
+  type         NotificationType
+  message      String
+  isRead       Boolean          @default(false)
+  actionUrl    String?
+  resourceId   Int?
+  resourceType String?
+  priority     Int              @default(0)
+  expiresAt    DateTime?
+  createdAt    DateTime         @default(now())
+  user         User             @relation(fields: [userId], references: [id])
+}
+
+model Cart {
+  id        Int        @id @default(autoincrement())
+  userId    Int        @unique
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  user      User       @relation(fields: [userId], references: [id])
+  items     CartItem[]
+}
+
+model CartItem {
+  id        Int      @id @default(autoincrement())
+  cartId    Int
+  productId Int
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id])
+
+  @@unique([cartId, productId])
+}
+
+model Status {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  content   String
+  imageUrl  String?
+  videoUrl  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+}
 
 enum UserRole {
   MERCHANT
   CLIENT
   SUPPLIER
-  ADMIN  
+  ADMIN
 }
+
 enum OnboardingStep {
-  email_verification  // Étape 1: Vérification email
-  personal_info      // Étape 2: Nom, prénom
-  contact_info       // Étape 3: Téléphone
-  address_info       // Étape 4: Adresse
-  profile_photo      // Étape 5: Photo (optionnelle)
-  completed          // Onboarding terminé
+  email_verification
+  personal_info
+  contact_info
+  address_info
+  profile_photo
+  completed
 }
 
 enum Gender {
@@ -33,9 +331,10 @@ enum Gender {
   FEMALE
   OTHER
 }
+
 enum ProductStatus {
-  DRAFT     // Brouillon
-  PUBLISHED // Publié
+  DRAFT
+  PUBLISHED
 }
 
 enum OrderStatus {
@@ -56,407 +355,21 @@ enum NotificationType {
   MESSAGE
   FOLLOW
   PRODUCT
-  SHOP         
-  SERVICE      
-  PROMOTION    
-  SYSTEM       
-  VERIFICATION 
-   PRODUCT_LIKE 
+  SHOP
+  SERVICE
+  PROMOTION
+  SYSTEM
+  VERIFICATION
+  PRODUCT_LIKE
 }
+
 enum LikeType {
   LIKE
   DISLIKE
 }
+
 enum ContactStatus {
   UNREAD
   RESPONDED
   CLOSED
-}
-
-//////////////////////////
-// MODELS
-//////////////////////////
-model MerchantContact {
-  id          Int      @id @default(autoincrement())
-  shopId      Int
-  merchantId  Int
-  subject     String
-  senderEmail String
-  message     String   @db.Text
-  status      String   @default("UNREAD")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-   
-  // Relations avec des noms de contraintes uniques
-  shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade, map: "MerchantContact_shop_fkey")
-  merchant    User     @relation("ReceivedMerchantContacts", fields: [merchantId], references: [id], onDelete: Cascade, map: "MerchantContact_merchant_receiver_fkey")
-  sender      User     @relation("SentMerchantContacts", fields: [merchantId], references: [id], map: "MerchantContact_merchant_sender_fkey")
-  
-  responses   MerchantContactResponse[]
-}
-
-model MerchantContactResponse {
-  id                 Int              @id @default(autoincrement())
-  merchantContactId  Int
-  merchantContact    MerchantContact  @relation(fields: [merchantContactId], references: [id], map: "MerchantContactResponse_merchantContact_fkey")
-  merchantId         Int
-  merchant           User             @relation(fields: [merchantId], references: [id], map: "MerchantContactResponse_merchant_fkey")
-  response           String
-  createdAt         DateTime         @default(now())
-}
-
-
-// Assurez-vous d'ajouter les relations dans les modèles Shop et User
-// Utilisateur
-model User {
-  id               Int           @id @default(autoincrement())
-  
-  // === ÉTAPE 1: INSCRIPTION MINIMALE (OBLIGATOIRE) ===
-  email            String         @unique
-  password         String
-  role             UserRole       @default(CLIENT)
-  
-  // === VÉRIFICATION & SÉCURITÉ ===
-  isVerified       Boolean        @default(false)
-  verificationCode String?
-  tokenExpiry      DateTime?
-  resetCode        String?
-  googleId         String?        @unique
-  
-  // === ONBOARDING PROGRESSIF ===
-  onboardingStep     OnboardingStep @default(email_verification)
-  profileCompletion  Int            @default(20) // % de completion
-  isProfileCompleted Boolean        @default(false)
-  
-  // === ÉTAPE 2: INFORMATIONS PERSONNELLES (OPTIONNELLES) ===
-  firstName        String?        // 🎯 Maintenant optionnel
-  lastName         String?        // 🎯 Maintenant optionnel
-  gender           Gender?        // Nouveau champ
-  dateOfBirth      DateTime?      // Nouveau champ
-  
-  // === ÉTAPE 3: CONTACT (OPTIONNELLES) ===
-  phoneNumber      String?        @unique // 🎯 Maintenant optionnel
-  whatsappNumber   String?        // Nouveau champ
-  
-  // === ÉTAPE 4: ADRESSE (OPTIONNELLES) ===
-  country          String?        // 🎯 Maintenant optionnel
-  city             String?        // 🎯 Maintenant optionnel
-  department       String?        // 🎯 Maintenant optionnel
-  commune          String?        // 🎯 Maintenant optionnel
-  address          String?        // Adresse complète
-  
-  // === ÉTAPE 5: PROFIL (OPTIONNELLES) ===
-  photo            String?
-  bio              String?        // Nouveau champ
-  
-  // === PRÉFÉRENCES ===
-  language         String         @default("fr")
-  currency         String         @default("CFA")
-  timezone         String         @default("Africa/Dakar")
-  
-  // === NOTIFICATIONS ===
-  emailNotifications    Boolean   @default(true)
-  smsNotifications     Boolean   @default(false)
-  pushNotifications    Boolean   @default(true)
-  marketingEmails      Boolean   @default(false)
-  
-  // === STATUT & ACTIVITÉ ===
-  isOnline         Boolean        @default(false)
-  lastLogin        DateTime?      
-  lastActive       DateTime?      
-  
-  // === TIMESTAMPS ===
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-
-  // === RELATIONS (INCHANGÉES) ===
-  cart             Cart?
-  shop             Shop?
-  products         Product[]      @relation("UserProducts")
-  orders           Order[]
-  messagesSent     Message[]      @relation("SenderMessages")
-  messagesReceived Message[]      @relation("ReceiverMessages")
-  subscriptions    Subscription[] @relation("Follower")
-  followers        Subscription[] @relation("Following")
-  services         Service[]
-  notifications    Notification[]
-  statuses         Status[]
-  productComments  ProductComment[]
-  commentReplies   CommentReply[]
-  productLikes     ProductLike[]
-  productShares    ProductShare[]
-  receivedMerchantContacts   MerchantContact[] @relation("ReceivedMerchantContacts")
-  sentMerchantContacts       MerchantContact[] @relation("SentMerchantContacts")
-  merchantContactResponses   MerchantContactResponse[]
-  clientFeedbacks    MerchantFeedback[] @relation("ClientFeedbacks")
-  merchantFeedbacks  MerchantFeedback[] @relation("MerchantFeedbacks")
-}
-
-// Boutique
-model Shop {
-  id               Int           @id @default(autoincrement())
-  name             String
-  description      String?
-  logo             String?
-  phoneNumber      String         @unique
-  address          String?
-  userId           Int            @unique
-  verifiedBadge    Boolean        @default(false)
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-
-  // Relations
-  owner            User           @relation(fields: [userId], references: [id])
-  products         Product[]
-  contactMessages MerchantContact[]
-  feedbacks          MerchantFeedback[]
-}
-
-// Produit
-model Product {
-  id               Int           @id @default(autoincrement())
-  name             String
-  description      String?
-  price            Float
-  stock            Int
-  videoUrl         String? 
-  category         String
-  shopId           Int
-  userId           Int
-  status           ProductStatus @default(DRAFT)  // Ajout du statut (brouillon/publié)
-  likesCount       Int           @default(0)      // Compteur de likes
-  commentsCount    Int           @default(0)      // Compteur de commentaires
-  sharesCount      Int           @default(0)      // Compteur de partages
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-
-  // Relations
-  shop             Shop           @relation(fields: [shopId], references: [id])
-  owner            User           @relation("UserProducts", fields: [userId], references: [id])
-  orderItems       OrderItem[]
-  images           ProductImage[] 
-  comments         ProductComment[] // Nouvelle relation
-  likes            ProductLike[]    // Nouvelle relation
-  shares           ProductShare[] 
-  cartItems        CartItem[]  
-}
-model ProductComment {
-  id               Int           @id @default(autoincrement())
-  productId        Int
-  userId           Int
-  comment          String
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-
-  // Relations
-  product          Product       @relation(fields: [productId], references: [id])
-  user             User          @relation(fields: [userId], references: [id])
-  replies          CommentReply[] // Support pour les réponses aux commentaires
-}
-
-// Réponses aux commentaires (nouveau)
-model CommentReply {
-  id               Int           @id @default(autoincrement())
-  commentId        Int
-  userId           Int
-  reply            String
-  createdAt        DateTime      @default(now())
-
-  // Relations
-  comment          ProductComment @relation(fields: [commentId], references: [id])
-  user             User          @relation(fields: [userId], references: [id])
-}
-
-// Likes de produit (nouveau)
-model ProductLike {
-   id               Int           @id @default(autoincrement())
-  productId        Int
-  userId           Int
-  type             LikeType      @default(LIKE)
-  createdAt        DateTime      @default(now())
-
-  // Relations
-  product          Product       @relation(fields: [productId], references: [id])
-  user             User          @relation(fields: [userId], references: [id])
-  
-  // Contrainte d'unicité pour éviter les likes multiples
-  @@unique([productId, userId])
-}
-
-// Partages de produit (nouveau)
-model ProductShare {
-  id               Int           @id @default(autoincrement())
-  productId        Int
-  userId           Int
-  sharedTo         String?       // Peut contenir une plateforme (ex: WhatsApp, Facebook)
-  createdAt        DateTime      @default(now())
-
-  // Relations
-  product          Product       @relation(fields: [productId], references: [id])
-  user             User          @relation(fields: [userId], references: [id])
-}
-
-
-
-// Images de produit
-model ProductImage {
-  id               Int           @id @default(autoincrement())
-  productId        Int
-   imageUrl  String   @db.VarChar(500)
-
-  // Relations
-  product          Product        @relation(fields: [productId], references: [id])
-}
-
-// Commande
-model Order {
-  id               Int           @id @default(autoincrement())
-  clientId         Int
-  totalAmount      Float
-  status           OrderStatus
-  paymentMethod    PaymentMethod
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-
-  // Relations
-  client           User           @relation(fields: [clientId], references: [id])
-  feedbacks          MerchantFeedback[]
-  orderItems       OrderItem[]
-}
-// À ajouter à votre fichier schema.prisma
-
-model MerchantFeedback {
-  id                Int       @id @default(autoincrement())
-  orderId           Int
-  clientId          Int
-  merchantId        Int
-  shopId            Int
-  rating            Int       // Note de 1 à 5
-  comment           String?   @db.Text
-  contactSuccessful Boolean   // Le client a-t-il pu contacter le commerçant?
-  createdAt         DateTime  @default(now())
-  
-  // Relations
-  order             Order     @relation(fields: [orderId], references: [id])
-  client            User      @relation("ClientFeedbacks", fields: [clientId], references: [id])
-  merchant          User      @relation("MerchantFeedbacks", fields: [merchantId], references: [id])
-  shop              Shop      @relation(fields: [shopId], references: [id])
-}
-
-// Détail de commande
-model OrderItem {
-  id               Int           @id @default(autoincrement())
-  orderId          Int
-  productId        Int
-  quantity         Int
-  price            Float
-
-  // Relations
-  order            Order          @relation(fields: [orderId], references: [id])
-  product          Product        @relation(fields: [productId], references: [id])
-}
-
-// Message// Ajoutez ces deux champs à votre modèle Message dans schema.prisma
-
-// Message - MISE À JOUR POUR L'AUDIO
-model Message {
-  id               Int           @id @default(autoincrement())
-  senderId         Int
-  receiverId       Int
-  content          String        @db.Text
-  mediaUrl         String?       // URL du média (image, vidéo OU audio) 🔥
-  mediaType        String?       // Type: 'image', 'video' OU 'audio' 🔥
-  isRead           Boolean       @default(false)
-  deletedForSender Boolean       @default(false)
-  deletedForReceiver Boolean     @default(false)
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-
-  // Relations
-  sender           User          @relation("SenderMessages", fields: [senderId], references: [id])
-  receiver         User          @relation("ReceiverMessages", fields: [receiverId], references: [id])
-}
-// Abonnement (follow)
-model Subscription {
-  id               Int           @id @default(autoincrement())
-  followerId       Int
-  followingId      Int
-  createdAt        DateTime       @default(now())
-
-  // Relations
-  follower         User           @relation("Follower", fields: [followerId], references: [id])
-  following        User           @relation("Following", fields: [followingId], references: [id])
-}
-
-// Service
-model Service {
-  id               Int           @id @default(autoincrement())
-  name             String
-  description      String?
-  price            Float
-  providerId       Int
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-
-  // Relations
-  provider         User           @relation(fields: [providerId], references: [id])
-}
-
-// ✅ Notification
-model Notification {
-  id               Int               @id @default(autoincrement())
-  userId           Int
-  type             NotificationType
-  message          String
-  isRead           Boolean           @default(false)
-  actionUrl        String?           
-  resourceId       Int?              
-  resourceType     String?           
-  priority         Int               @default(0)  
-  expiresAt        DateTime?         
-  createdAt        DateTime          @default(now())
-
-  // Relations
-  user             User              @relation(fields: [userId], references: [id])
-}
-model Cart {
-  id               Int           @id @default(autoincrement())
-  userId           Int           @unique
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-
-  // Relations
-  user             User          @relation(fields: [userId], references: [id])
-  items            CartItem[]
-}
-
-// Élément du panier
-model CartItem {
-  id               Int           @id @default(autoincrement())
-  cartId           Int
-  productId        Int
-  quantity         Int           @default(1)
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-
-  // Relations
-  cart             Cart          @relation(fields: [cartId], references: [id], onDelete: Cascade)
-  product          Product       @relation(fields: [productId], references: [id])
-
-  // Contrainte d'unicité pour éviter les doublons
-  @@unique([cartId, productId])
-}
-
-// ✅ Statut
-model Status {
-  id               Int            @id @default(autoincrement())
-  userId           Int
-  content          String
-  imageUrl         String?
-  videoUrl         String?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-
-  // Relations
-  user             User            @relation(fields: [userId], references: [id])
 }
