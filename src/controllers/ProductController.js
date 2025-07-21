@@ -1359,10 +1359,18 @@ export const getMerchantProducts = async (req, res) => {
 
 
   
-
 export const searchProducts = async (req, res) => {
   try {
-    const { query, category, page = 1, limit = 10 } = req.query;
+    const { 
+      query, 
+      category, 
+      minPrice,
+      maxPrice,
+      page = 1, 
+      limit = 10 
+    } = req.query;
+    
+    console.log('🔍 Recherche avec paramètres:', { query, category, minPrice, maxPrice, page, limit });
     
     if (!query) {
       return res.status(400).json({
@@ -1370,18 +1378,34 @@ export const searchProducts = async (req, res) => {
       });
     }
     
-    // Construire les filtres
+    // ✅ CONSTRUIRE LES FILTRES POUR MYSQL (sans mode: "insensitive")
     const filters = {
+      status: 'PUBLISHED',
       OR: [
-        { name: { contains: query, mode: 'insensitive' } },
-        { description: { contains: query, mode: 'insensitive' } }
+        { name: { contains: query } },        // ✅ SUPPRIMÉ mode: "insensitive"
+        { description: { contains: query } }  // ✅ SUPPRIMÉ mode: "insensitive"
       ]
     };
     
-    // Ajouter le filtre de catégorie si fourni
+    // Ajouter le filtre de catégorie
     if (category) {
       filters.category = category;
     }
+    
+    // Ajouter les filtres de prix
+    if (minPrice || maxPrice) {
+      filters.price = {};
+      if (minPrice) {
+        const min = parseFloat(minPrice);
+        if (!isNaN(min)) filters.price.gte = min;
+      }
+      if (maxPrice) {
+        const max = parseFloat(maxPrice);
+        if (!isNaN(max)) filters.price.lte = max;
+      }
+    }
+    
+    console.log('🔧 Filtres appliqués:', JSON.stringify(filters, null, 2));
     
     // Calculer le nombre d'éléments à sauter
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -1407,24 +1431,27 @@ export const searchProducts = async (req, res) => {
     // Compter le nombre total de produits pour la pagination
     const totalProducts = await prisma.product.count({ where: filters });
     
+    console.log(`✅ Recherche terminée: ${products.length} produits trouvés sur ${totalProducts} total`);
+    
     return res.status(200).json({
       products,
       pagination: {
         total: totalProducts,
         page: parseInt(page),
         limit: parseInt(limit),
-        totalPages: Math.ceil(totalProducts / parseInt(limit))
+        totalPages: Math.ceil(totalProducts / parseInt(limit)),
+        hasNextPage: parseInt(page) < Math.ceil(totalProducts / parseInt(limit))
       }
     });
   } catch (error) {
-    console.error("Erreur lors de la recherche de produits:", error);
+    console.error("❌ Erreur lors de la recherche de produits:", error);
     return res.status(500).json({
       message: "Une erreur est survenue lors de la recherche de produits",
-      error: error.message
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
-
 export const getProductsByCategory = async (req, res) => {
   try {
     const { category } = req.params;

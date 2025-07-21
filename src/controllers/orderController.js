@@ -1689,3 +1689,337 @@ export const sendOrderReminder = async (req, res) => {
     });
   }
 };
+
+// 🆕 NOUVELLES FONCTIONS À AJOUTER DANS orderController.js
+
+// Route: POST /api/orders/:orderId/remind-merchant/:merchantId// 🔧 CORRECTION dans orderController.js - sendPersonalizedMerchantReminder
+
+export const sendPersonalizedMerchantReminder = async (req, res) => {
+  try {
+    const { orderId, merchantId } = req.params;
+    const userId = req.user.id;
+    const { customMessage, includeImages = true } = req.body;
+    
+    // ... (code de vérification existant) ...
+    
+    // 💰 CALCULER LE TOTAL POUR CE MARCHAND
+    const merchantTotal = merchantProducts.reduce(
+      (sum, item) => sum + (item.price * item.quantity), 0
+    );
+    
+    // 📝 MESSAGE SIMPLIFIÉ (VERSION COURTE)
+    let messageContent = `🔔 Rappel commande #${order.id}\n\n`;
+    
+    if (customMessage) {
+      messageContent += `${customMessage}\n\n`;
+    }
+    
+    // 🎯 LISTE SIMPLE DES PRODUITS
+    messageContent += `📦 Produits (${merchantProducts.length}) :\n`;
+    merchantProducts.forEach((item, index) => {
+      messageContent += `${index + 1}. ${item.product.name} (x${item.quantity})\n`;
+    });
+    
+    messageContent += `\n💰 Total: ${merchantTotal.toLocaleString()} FCFA`;
+    
+    // 📤 ENVOYER LE MESSAGE PRINCIPAL (COURT)
+    const sentMessage = await prisma.message.create({
+      data: {
+        senderId: userId,
+        receiverId: parseInt(merchantId),
+        content: messageContent,
+        isRead: false
+      }
+    });
+    
+    // 🔔 NOTIFICATION SIMPLIFIÉE
+    await prisma.notification.create({
+      data: {
+        userId: parseInt(merchantId),
+        type: "MESSAGE",
+        message: `Rappel commande #${order.id} de ${order.client.firstName}`,
+        resourceId: sentMessage.id,
+        resourceType: "Message",
+        actionUrl: `/messages/${userId}`,
+        priority: 2
+      }
+    });
+    
+    let imageResults = [];
+    
+    // 📸 ENVOYER SEULEMENT LES IMAGES (SANS TEXTE SÉPARÉ)
+    if (includeImages) {
+      console.log(`📸 Envoi ${merchantProducts.length} images...`);
+      
+      for (let i = 0; i < merchantProducts.length; i++) {
+        const item = merchantProducts[i];
+        
+        if (item.product.images && item.product.images.length > 0) {
+          try {
+            // Attendre un peu entre chaque image
+            if (i > 0) {
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
+            
+            // 🖼️ ENVOYER JUSTE L'IMAGE AVEC LE NOM DU PRODUIT
+            const imageUrl = item.product.images[0];
+            const shortDescription = `${item.product.name} (x${item.quantity})`;
+            
+            const imageMessage = await prisma.message.create({
+              data: {
+                senderId: userId,
+                receiverId: parseInt(merchantId),
+                content: shortDescription, // 🎯 MESSAGE TRÈS COURT
+                mediaUrl: imageUrl,
+                mediaType: 'image',
+                isRead: false
+              }
+            });
+            
+            imageResults.push({
+              productId: item.product.id,
+              productName: item.product.name,
+              imageSent: true,
+              messageId: imageMessage.id
+            });
+            
+          } catch (imageError) {
+            console.error(`❌ Erreur image ${item.product.name}:`, imageError);
+            imageResults.push({
+              productId: item.product.id,
+              productName: item.product.name,
+              imageSent: false,
+              error: imageError.message
+            });
+          }
+        } else {
+          imageResults.push({
+            productId: item.product.id,
+            productName: item.product.name,
+            imageSent: false,
+            reason: 'Aucune image'
+          });
+        }
+      }
+    }
+    
+    // 📡 SOCKET.IO
+    if (global.io) {
+      global.io.to(`user_${merchantId}`).emit('new_message', {
+        message: sentMessage,
+        sender: {
+          id: userId,
+          name: `${order.client.firstName} ${order.client.lastName}`
+        }
+      });
+    }
+    
+    // 📊 RÉPONSE
+    return res.status(200).json({
+      message: "Rappel envoyé",
+      data: {
+        orderId: order.id,
+        merchantId: parseInt(merchantId),
+        merchantName: `${merchant.firstName} ${merchant.lastName}`,
+        shopName: merchant.shop.name,
+        productsCount: merchantProducts.length,
+        totalAmount: merchantTotal,
+        messageId: sentMessage.id,
+        summary: {
+          textMessage: true,
+          imagesSent: imageResults.filter(r => r.imageSent).length,
+          imagesSkipped: imageResults.filter(r => !r.imageSent).length
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error("Erreur rappel personnalisé:", error);
+    return res.status(500).json({
+      message: "Erreur lors de l'envoi du rappel",
+      error: error.message
+    });
+  }
+};
+
+// Route: POST /api/orders/:orderId/remind-selected-merchants
+export const sendSelectedMerchantsReminder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user.id;
+    const { merchantIds, customMessage, includeImages = true } = req.body;
+    
+    if (!merchantIds || !Array.isArray(merchantIds) || merchantIds.length === 0) {
+      return res.status(400).json({
+        message: "Veuillez sélectionner au moins un marchand"
+      });
+    }
+    
+    const results = [];
+    
+    // 🔄 TRAITER CHAQUE MARCHAND SÉLECTIONNÉ
+    for (let i = 0; i < merchantIds.length; i++) {
+      const merchantId = merchantIds[i];
+      
+      try {
+        // Attendre entre chaque marchand pour éviter le spam
+        if (i > 0) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+        
+        // Utiliser la fonction de rappel personnalisé
+        const mockReq = {
+          params: { orderId, merchantId: merchantId.toString() },
+          user: { id: userId },
+          body: { customMessage, includeImages }
+        };
+        
+        const mockRes = {
+          status: (code) => ({
+            json: (data) => ({ statusCode: code, data })
+          })
+        };
+        
+        const result = await sendPersonalizedMerchantReminder(mockReq, mockRes);
+        
+        results.push({
+          merchantId,
+          success: true,
+          data: result.data
+        });
+        
+      } catch (error) {
+        console.error(`Erreur pour marchand ${merchantId}:`, error);
+        results.push({
+          merchantId,
+          success: false,
+          error: error.message
+        });
+      }
+    }
+    
+    // 📊 RÉSUMÉ GLOBAL
+    const successCount = results.filter(r => r.success).length;
+    const errorCount = results.filter(r => !r.success).length;
+    
+    return res.status(200).json({
+      message: `Rappels envoyés: ${successCount} réussis, ${errorCount} échecs`,
+      summary: {
+        total: merchantIds.length,
+        success: successCount,
+        errors: errorCount
+      },
+      results: results
+    });
+    
+  } catch (error) {
+    console.error("Erreur lors de l'envoi multiple:", error);
+    return res.status(500).json({
+      message: "Une erreur est survenue lors de l'envoi des rappels",
+      error: error.message
+    });
+  }
+};
+
+// Route: GET /api/orders/:orderId/merchants-details
+export const getOrderMerchantsWithProducts = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user.id;
+    
+    const order = await prisma.order.findFirst({
+      where: {
+        id: parseInt(orderId),
+        clientId: userId
+      },
+      include: {
+        orderItems: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                price: true,
+                images: { take: 3 }, // Prendre max 3 images
+                shop: {
+                  select: {
+                    id: true,
+                    name: true,
+                    phoneNumber: true,
+                    userId: true,
+                    owner: {
+                      select: {
+                        id: true,
+                        firstName: true,
+                        lastName: true,
+                        photo: true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+    
+    if (!order) {
+      return res.status(404).json({ message: "Commande non trouvée" });
+    }
+    
+    // 🏪 REGROUPER PAR MARCHAND
+    const merchantsMap = new Map();
+    
+    order.orderItems.forEach(item => {
+      const shop = item.product.shop;
+      const merchantUserId = shop.userId;
+      
+      if (!merchantsMap.has(merchantUserId)) {
+        merchantsMap.set(merchantUserId, {
+          merchantId: merchantUserId,
+          shopId: shop.id,
+          shopName: shop.name,
+          shopPhone: shop.phoneNumber,
+          merchantFirstName: shop.owner.firstName,
+          merchantLastName: shop.owner.lastName,
+          merchantPhoto: shop.owner.photo,
+          products: [],
+          totalAmount: 0,
+          totalItems: 0
+        });
+      }
+      
+      const merchant = merchantsMap.get(merchantUserId);
+      
+      merchant.products.push({
+        id: item.product.id,
+        name: item.product.name,
+        price: item.price,
+        quantity: item.quantity,
+        totalPrice: item.price * item.quantity,
+        images: item.product.images,
+        hasImages: item.product.images.length > 0
+      });
+      
+      merchant.totalAmount += item.price * item.quantity;
+      merchant.totalItems += item.quantity;
+    });
+    
+    const merchants = Array.from(merchantsMap.values());
+    
+    return res.status(200).json({
+      orderId: order.id,
+      orderStatus: order.status,
+      merchantsCount: merchants.length,
+      merchants: merchants
+    });
+    
+  } catch (error) {
+    console.error("Erreur lors de la récupération des détails marchands:", error);
+    return res.status(500).json({
+      message: "Erreur lors de la récupération des détails",
+      error: error.message
+    });
+  }
+};

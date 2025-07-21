@@ -4,22 +4,20 @@
 //   url      = env("DATABASE_URL")
 // }
 datasource db {
-  provider = "postgresql"  // Changé de "mysql" à "postgresql"
-  url      = env("DATABASE_URL")
+  provider = "mysql"  // Changé de "mysql" à "postgresql"
+  url      = env("DATABASE_URL2")
 }
 
 generator client {
   provider = "prisma-client-js"
 }
 
-//////////////////////////
-// ENUMS
-//////////////////////////
+
 enum UserRole {
   MERCHANT
   CLIENT
   SUPPLIER
-  ADMIN  // Ajout pour administration
+  ADMIN  
 }
 enum OnboardingStep {
   email_verification  // Étape 1: Vérification email
@@ -164,8 +162,8 @@ model User {
   
   // === STATUT & ACTIVITÉ ===
   isOnline         Boolean        @default(false)
-  lastLogin        DateTime?      // Nouveau champ
-  lastActive       DateTime?      // Nouveau champ
+  lastLogin        DateTime?      
+  lastActive       DateTime?      
   
   // === TIMESTAMPS ===
   createdAt        DateTime       @default(now())

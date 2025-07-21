@@ -4,8 +4,9 @@ import dotenv from 'dotenv';
 // Charger les variables d'environnement
 dotenv.config();
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0'; // 🔧 Écoute sur toutes les interfaces
+
 
 // 🔧 LANCER LE SERVEUR AVEC SUPPORT SOCKET.IO
 server.listen(PORT, HOST, () => {
@@ -56,6 +57,7 @@ process.on('SIGTERM', () => {
         process.exit(0);
     });
 });
+
 
 // Gestion des erreurs non gérées
 process.on('unhandledRejection', (reason, promise) => {

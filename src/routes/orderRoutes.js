@@ -16,6 +16,9 @@ import {
   getRevenueChart,
   checkOrderConfirmationImproved, // 🆕 NOUVELLE MÉTHODE
   getOrderMerchants,              // 🆕 NOUVELLE MÉTHODE
+  sendPersonalizedMerchantReminder,    // 🆕 Rappel personnalisé pour un marchand
+  sendSelectedMerchantsReminder,       // 🆕 Rappel pour plusieurs marchands sélectionnés
+  getOrderMerchantsWithProducts,       // 🆕 Détails des marchands avec leurs produits
 } from '../controllers/orderController.js';
 
 const router = express.Router();
@@ -40,5 +43,24 @@ router.get('/merchant/revenue-chart', authenticate, getRevenueChart);   // 📈 
 router.get('/merchant/top-products', authenticate, getTopProducts);     // 🏆 Top produits (déjà présent)
 // 🆕 ROUTE ADMIN: Nettoyer les anciennes commandes annulées
 router.post('/orders/cleanup-canceled', authenticate, cleanupOldCanceledOrders);
+// 🆕 =============== NOUVELLES ROUTES À AJOUTER ===============
+
+// 1. Rappel personnalisé pour un marchand spécifique
+router.post('/orders/:orderId/remind-merchant/:merchantId', 
+  authenticate, 
+  sendPersonalizedMerchantReminder
+);
+
+// 2. Rappel pour plusieurs marchands sélectionnés
+router.post('/orders/:orderId/remind-selected-merchants', 
+  authenticate, 
+  sendSelectedMerchantsReminder
+);
+
+// 3. Obtenir les détails des marchands avec leurs produits
+router.get('/orders/:orderId/merchants-details', 
+  authenticate, 
+  getOrderMerchantsWithProducts
+);
 
 export default router;

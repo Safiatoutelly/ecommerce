@@ -709,7 +709,7 @@ deleteMessage: async (req, res) => {
       if (messageAge > thirtyMinutesInMs) {
         return res.status(403).json({
           success: false,
-          message: "Vous ne pouvez plus supprimer ce message pour tout le monde. La limite de 30 minutes est dépassée."
+          message: "Vous ne pouvez pas supprimer ce message le temps à passer"
         });
       }
 
