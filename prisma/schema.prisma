@@ -4,8 +4,8 @@
 //   url      = env("DATABASE_URL")
 // }
 datasource db {
-  provider = "mysql"  // Changé de "mysql" à "postgresql"
-  url      = env("DATABASE_URL2")
+  provider = "postgresql"  // Changé de "mysql" à "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 generator client {
