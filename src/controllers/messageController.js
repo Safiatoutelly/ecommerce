@@ -343,98 +343,119 @@ export const messageController = {
     }
 
     const userId = req.user.id;
+    console.log(`🔄 [getConversations] Récupération conversations pour user ${userId}`);
 
-    const messages = await prisma.$queryRaw`
-      SELECT 
-        m.*,
-        IF(m.senderId = ${userId}, m.receiverId, m.senderId) as conversationPartnerId,
-        u.firstName, 
-        u.lastName, 
-        u.photo,
-        u.role,
-        (
-          SELECT COUNT(*) FROM Message WHERE 
-            receiverId = ${userId} AND 
-            senderId = IF(m.senderId = ${userId}, m.receiverId, m.senderId) AND 
-            isRead = false AND
-            deletedForReceiver = false
-        ) as unreadCount,
-        (
-          SELECT content FROM Message 
-          WHERE 
-            (
-              (senderId = ${userId} AND receiverId = IF(m.senderId = ${userId}, m.receiverId, m.senderId) AND deletedForSender = false)
-              OR
-              (receiverId = ${userId} AND senderId = IF(m.senderId = ${userId}, m.receiverId, m.senderId) AND deletedForReceiver = false)
-            )
-          ORDER BY createdAt DESC 
-          LIMIT 1
-        ) as lastMessage,
-        (
-          SELECT mediaUrl FROM Message 
-          WHERE 
-            (
-              (senderId = ${userId} AND receiverId = IF(m.senderId = ${userId}, m.receiverId, m.senderId) AND deletedForSender = false)
-              OR
-              (receiverId = ${userId} AND senderId = IF(m.senderId = ${userId}, m.receiverId, m.senderId) AND deletedForReceiver = false)
-            )
-          ORDER BY createdAt DESC 
-          LIMIT 1
-        ) as lastMediaUrl,
-        (
-          SELECT mediaType FROM Message 
-          WHERE 
-            (
-              (senderId = ${userId} AND receiverId = IF(m.senderId = ${userId}, m.receiverId, m.senderId) AND deletedForSender = false)
-              OR
-              (receiverId = ${userId} AND senderId = IF(m.senderId = ${userId}, m.receiverId, m.senderId) AND deletedForReceiver = false)
-            )
-          ORDER BY createdAt DESC 
-          LIMIT 1
-        ) as lastMediaType,
-        (
-          SELECT createdAt FROM Message 
-          WHERE 
-            (
-              (senderId = ${userId} AND receiverId = IF(m.senderId = ${userId}, m.receiverId, m.senderId) AND deletedForSender = false)
-              OR
-              (receiverId = ${userId} AND senderId = IF(m.senderId = ${userId}, m.receiverId, m.senderId) AND deletedForReceiver = false)
-            )
-          ORDER BY createdAt DESC 
-          LIMIT 1
-        ) as lastMessageTime
-      FROM Message m
-      JOIN User u ON u.id = IF(m.senderId = ${userId}, m.receiverId, m.senderId)
-      WHERE
-        (m.senderId = ${userId} AND m.deletedForSender = false)
-        OR
-        (m.receiverId = ${userId} AND m.deletedForReceiver = false)
-      GROUP BY IF(m.senderId = ${userId}, m.receiverId, m.senderId)
-      ORDER BY lastMessageTime DESC;
-    `;
+    // 🔥 APPROCHE SIMPLIFIÉE : Récupérer tous les messages puis traiter en JavaScript
+    const messages = await prisma.message.findMany({
+      where: {
+        OR: [
+          { 
+            senderId: userId,
+            deletedForSender: false
+          },
+          { 
+            receiverId: userId,
+            deletedForReceiver: false
+          }
+        ]
+      },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            photo: true,
+            role: true
+          }
+        },
+        receiver: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            photo: true,
+            role: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
 
-    const conversations = messages.map(msg => ({
-      partnerId: msg.conversationPartnerId,
-      partnerName: `${msg.firstName} ${msg.lastName}`,
-      partnerPhoto: msg.photo,
-      partnerRole: msg.role,
-      lastMessage: msg.lastMessage,
-      lastMediaUrl: msg.lastMediaUrl,
-      lastMediaType: msg.lastMediaType,
-      lastMessageTime: msg.lastMessageTime,
-      unreadCount: Number(msg.unreadCount)
-    }));
+    console.log(`📊 [getConversations] ${messages.length} messages trouvés`);
+
+    // 🔥 GROUPER LES CONVERSATIONS PAR PARTENAIRE
+    const conversationsMap = new Map();
+
+    for (const message of messages) {
+      // Déterminer qui est le partenaire de conversation
+      const isCurrentUserSender = message.senderId === userId;
+      const partner = isCurrentUserSender ? message.receiver : message.sender;
+      const partnerId = partner.id;
+
+      // Si on n'a pas encore cette conversation, l'initialiser
+      if (!conversationsMap.has(partnerId)) {
+        conversationsMap.set(partnerId, {
+          partnerId: partner.id,
+          partnerName: `${partner.firstName} ${partner.lastName}`,
+          partnerPhoto: partner.photo,
+          partnerRole: partner.role,
+          lastMessage: message.content,
+          lastMediaUrl: message.mediaUrl,
+          lastMediaType: message.mediaType,
+          lastMessageTime: message.createdAt,
+          unreadCount: 0,
+          messages: []
+        });
+      }
+
+      // Ajouter le message à la conversation
+      conversationsMap.get(partnerId).messages.push(message);
+    }
+
+    // 🔥 CALCULER LES MESSAGES NON LUS ET FINALISER
+    const conversations = Array.from(conversationsMap.values()).map(conversation => {
+      // Compter les messages non lus (messages reçus par l'utilisateur actuel)
+      const unreadCount = conversation.messages.filter(msg => 
+        msg.receiverId === userId && !msg.isRead
+      ).length;
+
+      // Le dernier message est déjà le premier (ORDER BY createdAt DESC)
+      const lastMessage = conversation.messages[0];
+
+      return {
+        partnerId: conversation.partnerId,
+        partnerName: conversation.partnerName,
+        partnerPhoto: conversation.partnerPhoto,
+        partnerRole: conversation.partnerRole,
+        lastMessage: lastMessage?.content || '',
+        lastMediaUrl: lastMessage?.mediaUrl,
+        lastMediaType: lastMessage?.mediaType,
+        lastMessageTime: lastMessage?.createdAt,
+        unreadCount: unreadCount
+      };
+    });
+
+    // 🔥 TRIER PAR HEURE DU DERNIER MESSAGE (plus récent en premier)
+    conversations.sort((a, b) => new Date(b.lastMessageTime) - new Date(a.lastMessageTime));
+
+    console.log(`✅ [getConversations] ${conversations.length} conversations retournées`);
 
     return res.status(200).json({
       success: true,
       data: conversations
     });
+
   } catch (error) {
-    console.error("Erreur lors de la récupération des conversations:", error);
+    console.error("💥 [getConversations] Erreur:", error);
+    console.error("Stack:", error.stack);
+    
     return res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de la récupération des conversations",
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal Server Error'
     });
   }
 },
