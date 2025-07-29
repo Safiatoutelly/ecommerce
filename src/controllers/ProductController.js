@@ -680,33 +680,33 @@ export const getAllProducts = async (req, res) => {
       }
     });
     
-    // 🔥 FORMATTER LES PRODUITS AVEC isLiked CALCULÉ
+    // 🔥 FORMATTER LES PRODUITS AVEC isLiked CALCULÉ (SANS CHANGER LE MODÈLE DART)
     const formattedProducts = products.map(product => ({
+      // ✅ GARDER TOUS LES CHAMPS EXISTANTS
       id: product.id,
       name: product.name,
       description: product.description,
       price: product.price,
-      formattedPrice: `${product.price} FCFA`,
       stock: product.stock,
+      videoUrl: product.videoUrl,
+      category: product.category,
+      shopId: product.shopId,
+      userId: product.userId,
+      status: product.status,
       likesCount: product.likesCount,
       commentsCount: product.commentsCount,
       sharesCount: product.sharesCount,
-      isAvailable: product.stock > 0,
-      category: product.category,
-      status: product.status,
-      videoUrl: product.videoUrl,
-      images: product.images.map(img => ({
-        id: img.id,
-        imageUrl: img.imageUrl,
-        fullImageUrl: img.imageUrl
-      })),
-      shop: product.shop,
-      shopName: product.shop?.name || 'Boutique',
-      isShopVerified: product.shop?.verifiedBadge || false,
-      // 🔥 LE PLUS IMPORTANT : isLiked CALCULÉ IMMÉDIATEMENT !
-      isLiked: userId ? product.likes.length > 0 : false,
       createdAt: product.createdAt,
-      updatedAt: product.updatedAt
+      updatedAt: product.updatedAt,
+      images: product.images,
+      shop: product.shop,
+      _count: {
+        likes: product.likesCount,
+        comments: product.commentsCount,
+        shares: product.sharesCount
+      },
+      // 🔥 AJOUTER SEULEMENT isLiked SANS RIEN CASSER
+      isLiked: userId ? product.likes.length > 0 : false
     }));
     
     console.log(`✅ ${formattedProducts.length} produits formatés avec isLiked`);
