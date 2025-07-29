@@ -606,10 +606,12 @@ export const updateProductStatus = async (req, res) => {
     });
   }
 };
-// 🔥 REMPLACEZ votre fonction getAllProducts dans productController.js
+// 🔥 SOLUTION 2 : Modifier votre backend getAllProducts pour inclure isLiked directement
 
 export const getAllProducts = async (req, res) => {
   try {
+    console.log('\n🛍️ === RÉCUPÉRATION PRODUITS AVEC isLiked ===');
+    
     const { 
       category, 
       minPrice, 
@@ -651,6 +653,7 @@ export const getAllProducts = async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
     // 🔥 RÉCUPÉRER PRODUITS AVEC L'ÉTAT DU LIKE INCLUS
+    console.log('🔍 Récupération des produits avec état des likes...');
     const products = await prisma.product.findMany({
       where: filters,
       orderBy,
@@ -680,34 +683,41 @@ export const getAllProducts = async (req, res) => {
       }
     });
     
-    // 🔥 FORMATTER LES PRODUITS AVEC isLiked CALCULÉ (SANS CHANGER LE MODÈLE DART)
-    const formattedProducts = products.map(product => ({
-      // ✅ GARDER TOUS LES CHAMPS EXISTANTS
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      stock: product.stock,
-      videoUrl: product.videoUrl,
-      category: product.category,
-      shopId: product.shopId,
-      userId: product.userId,
-      status: product.status,
-      likesCount: product.likesCount,
-      commentsCount: product.commentsCount,
-      sharesCount: product.sharesCount,
-      createdAt: product.createdAt,
-      updatedAt: product.updatedAt,
-      images: product.images,
-      shop: product.shop,
-      _count: {
-        likes: product.likesCount,
-        comments: product.commentsCount,
-        shares: product.sharesCount
-      },
-      // 🔥 AJOUTER SEULEMENT isLiked SANS RIEN CASSER
-      isLiked: userId ? product.likes.length > 0 : false
-    }));
+    // 🔥 FORMATTER LES PRODUITS AVEC isLiked CALCULÉ
+    const formattedProducts = products.map(product => {
+      // Calculer isLiked basé sur la présence de likes
+      const isLiked = userId ? product.likes.length > 0 : false;
+      
+      console.log(`📦 Produit ${product.id}: ${product.name} - isLiked: ${isLiked}`);
+      
+      return {
+        // ✅ GARDER TOUS LES CHAMPS EXISTANTS
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        price: product.price,
+        stock: product.stock,
+        videoUrl: product.videoUrl,
+        category: product.category,
+        shopId: product.shopId,
+        userId: product.userId,
+        status: product.status,
+        likesCount: product.likesCount,
+        commentsCount: product.commentsCount,
+        sharesCount: product.sharesCount,
+        createdAt: product.createdAt,
+        updatedAt: product.updatedAt,
+        images: product.images,
+        shop: product.shop,
+        _count: {
+          likes: product.likesCount,
+          comments: product.commentsCount,
+          shares: product.sharesCount
+        },
+        // 🔥 AJOUTER isLiked DIRECTEMENT
+        isLiked: isLiked
+      };
+    });
     
     console.log(`✅ ${formattedProducts.length} produits formatés avec isLiked`);
     
@@ -723,7 +733,7 @@ export const getAllProducts = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error("Erreur lors de la récupération des produits:", error);
+    console.error("❌ Erreur lors de la récupération des produits:", error);
     return res.status(500).json({
       message: "Une erreur est survenue lors de la récupération des produits",
       error: error.message
@@ -731,11 +741,13 @@ export const getAllProducts = async (req, res) => {
   }
 };
 
-// 🔥 AUSSI MODIFIER getProductById pour inclure isLiked
+// 🔥 AUSSI MODIFIER getProductById
 export const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user?.id;
+    
+    console.log(`🔍 Récupération produit ${id} pour user ${userId}`);
     
     const product = await prisma.product.findUnique({
       where: { id: parseInt(id) },
@@ -777,44 +789,47 @@ export const getProductById = async (req, res) => {
     }
     
     // 🔥 FORMATTER AVEC isLiked INCLUS
+    const isLiked = userId ? product.likes.length > 0 : false;
+    
     const formattedProduct = {
+      // ✅ GARDER TOUS LES CHAMPS EXISTANTS
       id: product.id,
       name: product.name,
       description: product.description,
       price: product.price,
-      formattedPrice: `${product.price} FCFA`,
       stock: product.stock,
+      videoUrl: product.videoUrl,
+      category: product.category,
+      shopId: product.shopId,
+      userId: product.userId,
+      status: product.status,
       likesCount: product.likesCount,
       commentsCount: product.commentsCount,
       sharesCount: product.sharesCount,
-      isAvailable: product.stock > 0,
-      category: product.category,
-      status: product.status,
-      videoUrl: product.videoUrl,
-      images: product.images.map(img => ({
-        id: img.id,
-        imageUrl: img.imageUrl,
-        fullImageUrl: img.imageUrl
-      })),
-      shop: product.shop,
-      shopName: product.shop?.name || 'Boutique',
-      isShopVerified: product.shop?.verifiedBadge || false,
-      // 🔥 isLiked CALCULÉ DIRECTEMENT
-      isLiked: userId ? product.likes.length > 0 : false,
       createdAt: product.createdAt,
-      updatedAt: product.updatedAt
+      updatedAt: product.updatedAt,
+      images: product.images,
+      shop: product.shop,
+      _count: {
+        likes: product.likesCount,
+        comments: product.commentsCount,
+        shares: product.sharesCount
+      },
+      // 🔥 AJOUTER isLiked
+      isLiked: isLiked
     };
+    
+    console.log(`✅ Produit ${id} formaté avec isLiked: ${isLiked}`);
     
     return res.status(200).json(formattedProduct);
   } catch (error) {
-    console.error("Erreur lors de la récupération du produit:", error);
+    console.error("❌ Erreur lors de la récupération du produit:", error);
     return res.status(500).json({
       message: "Une erreur est survenue lors de la récupération du produit",
       error: error.message
     });
   }
 };
-
 export const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1439,6 +1454,7 @@ export const getMerchantProducts = async (req, res) => {
 
 
   
+
 export const searchProducts = async (req, res) => {
   try {
     const { 
@@ -1450,7 +1466,9 @@ export const searchProducts = async (req, res) => {
       limit = 10 
     } = req.query;
     
-    console.log('🔍 Recherche avec paramètres:', { query, category, minPrice, maxPrice, page, limit });
+    const userId = req.user?.id;
+    
+    console.log('🔍 Recherche PostgreSQL avec:', { query, category, minPrice, maxPrice, page, limit, userId });
     
     if (!query) {
       return res.status(400).json({
@@ -1458,63 +1476,120 @@ export const searchProducts = async (req, res) => {
       });
     }
     
-    // ✅ CONSTRUIRE LES FILTRES POUR MYSQL (sans mode: "insensitive")
-    const filters = {
-      status: 'PUBLISHED',
-      OR: [
-        { name: { contains: query } },        // ✅ SUPPRIMÉ mode: "insensitive"
-        { description: { contains: query } }  // ✅ SUPPRIMÉ mode: "insensitive"
-      ]
-    };
+    const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    // Ajouter le filtre de catégorie
+    // 🔥 SOLUTION POSTGRESQL : Utiliser du SQL brut avec ILIKE
+    let whereClause = `status = 'PUBLISHED' AND (name ILIKE $1 OR description ILIKE $1)`;
+    let params = [`%${query}%`];
+    let paramIndex = 2;
+    
+    // Ajouter la catégorie
     if (category) {
-      filters.category = category;
+      whereClause += ` AND category = $${paramIndex}`;
+      params.push(category);
+      paramIndex++;
     }
     
     // Ajouter les filtres de prix
-    if (minPrice || maxPrice) {
-      filters.price = {};
-      if (minPrice) {
-        const min = parseFloat(minPrice);
-        if (!isNaN(min)) filters.price.gte = min;
-      }
-      if (maxPrice) {
-        const max = parseFloat(maxPrice);
-        if (!isNaN(max)) filters.price.lte = max;
-      }
+    if (minPrice) {
+      whereClause += ` AND price >= $${paramIndex}`;
+      params.push(parseFloat(minPrice));
+      paramIndex++;
     }
     
-    console.log('🔧 Filtres appliqués:', JSON.stringify(filters, null, 2));
+    if (maxPrice) {
+      whereClause += ` AND price <= $${paramIndex}`;
+      params.push(parseFloat(maxPrice));
+      paramIndex++;
+    }
     
-    // Calculer le nombre d'éléments à sauter
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    console.log('🔧 SQL WHERE:', whereClause);
+    console.log('🔧 Paramètres:', params);
     
-    // Rechercher les produits
-    const products = await prisma.product.findMany({
-      where: filters,
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take: parseInt(limit),
-      include: {
-        images: true,
-        shop: {
-          select: {
-            name: true,
-            logo: true,
-            verifiedBadge: true
-          }
-        }
-      }
-    });
+    // 🔥 REQUÊTE SQL BRUTE POSTGRESQL
+    const productsQuery = `
+      SELECT p.*, 
+             COALESCE(json_agg(
+               json_build_object(
+                 'id', pi.id,
+                 'productId', pi."productId",
+                 'imageUrl', pi."imageUrl"
+               )
+             ) FILTER (WHERE pi.id IS NOT NULL), '[]') as images,
+             json_build_object(
+               'id', s.id,
+               'name', s.name,
+               'logo', s.logo,
+               'verifiedBadge', s."verifiedBadge"
+             ) as shop,
+             CASE 
+               WHEN $${paramIndex} IS NOT NULL THEN (
+                 SELECT COUNT(*) > 0 
+                 FROM "ProductLike" pl 
+                 WHERE pl."productId" = p.id 
+                   AND pl."userId" = $${paramIndex} 
+                   AND pl.type = 'LIKE'
+               )
+               ELSE false
+             END as "isLiked"
+      FROM "Product" p
+      LEFT JOIN "ProductImage" pi ON p.id = pi."productId"
+      LEFT JOIN "Shop" s ON p."shopId" = s.id
+      WHERE ${whereClause}
+      GROUP BY p.id, s.id, s.name, s.logo, s."verifiedBadge"
+      ORDER BY p."createdAt" DESC
+      LIMIT $${paramIndex + 1} OFFSET $${paramIndex + 2}
+    `;
     
-    // Compter le nombre total de produits pour la pagination
-    const totalProducts = await prisma.product.count({ where: filters });
+    params.push(userId || null); // Pour isLiked
+    params.push(parseInt(limit)); // LIMIT
+    params.push(skip); // OFFSET
     
-    console.log(`✅ Recherche terminée: ${products.length} produits trouvés sur ${totalProducts} total`);
+    console.log('📤 Exécution de la requête SQL...');
+    const products = await prisma.$queryRawUnsafe(productsQuery, ...params);
+    
+    // Compter le total
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM "Product" p
+      WHERE ${whereClause}
+    `;
+    
+    const countResult = await prisma.$queryRawUnsafe(countQuery, ...params.slice(0, -3)); // Enlever userId, limit, offset
+    const totalProducts = parseInt(countResult[0].total);
+    
+    console.log(`✅ Recherche PostgreSQL terminée: ${products.length} produits trouvés sur ${totalProducts} total`);
+    
+    // 🔥 FORMATTER LES RÉSULTATS
+    const formattedProducts = products.map(product => ({
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: parseFloat(product.price),
+      stock: product.stock,
+      videoUrl: product.videoUrl,
+      category: product.category,
+      shopId: product.shopId,
+      userId: product.userId,
+      status: product.status,
+      likesCount: product.likesCount,
+      commentsCount: product.commentsCount,
+      sharesCount: product.sharesCount,
+      createdAt: product.createdAt,
+      updatedAt: product.updatedAt,
+      images: product.images || [],
+      shop: product.shop || null,
+      _count: {
+        likes: product.likesCount,
+        comments: product.commentsCount,
+        shares: product.sharesCount
+      },
+      // 🔥 isLiked CALCULÉ DIRECTEMENT DANS LA REQUÊTE SQL
+      isLiked: product.isLiked || false
+    }));
     
     return res.status(200).json({
-      products,
+      products: formattedProducts,
       pagination: {
         total: totalProducts,
         page: parseInt(page),
@@ -1524,7 +1599,7 @@ export const searchProducts = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error("❌ Erreur lors de la recherche de produits:", error);
+    console.error("❌ Erreur lors de la recherche PostgreSQL:", error);
     return res.status(500).json({
       message: "Une erreur est survenue lors de la recherche de produits",
       error: error.message,
