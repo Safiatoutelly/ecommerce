@@ -606,6 +606,7 @@ export const updateProductStatus = async (req, res) => {
     });
   }
 };
+// 🔥 REMPLACEZ votre fonction getAllProducts dans productController.js
 
 export const getAllProducts = async (req, res) => {
   try {
@@ -617,12 +618,16 @@ export const getAllProducts = async (req, res) => {
       order, 
       page = 1, 
       limit = 10,
-      status = 'PUBLISHED' // Par défaut, ne montrer que les produits publiés
+      status = 'PUBLISHED'
     } = req.query;
+    
+    // 🔥 RÉCUPÉRER L'ID UTILISATEUR (peut être null si non connecté)
+    const userId = req.user?.id;
+    console.log('👤 User ID pour likes:', userId);
     
     // Construire les filtres
     const filters = {
-      status: status // Filtrer par statut
+      status: status
     };
     
     if (category) {
@@ -640,13 +645,12 @@ export const getAllProducts = async (req, res) => {
     if (sortBy) {
       orderBy[sortBy] = order?.toLowerCase() === 'desc' ? 'desc' : 'asc';
     } else {
-      orderBy.createdAt = 'desc'; // Par défaut, les plus récents d'abord
+      orderBy.createdAt = 'desc';
     }
     
-    // Calculer le nombre d'éléments à sauter
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    // Récupérer les produits
+    // 🔥 RÉCUPÉRER PRODUITS AVEC L'ÉTAT DU LIKE INCLUS
     const products = await prisma.product.findMany({
       where: filters,
       orderBy,
@@ -656,27 +660,61 @@ export const getAllProducts = async (req, res) => {
         images: true,
         shop: {
           select: {
+            id: true,
             name: true,
             logo: true,
             verifiedBadge: true
           }
         },
-        // Inclure les compteurs d'interactions sociales
-        _count: {
+        // 🔥 INCLURE LES LIKES DE L'UTILISATEUR DIRECTEMENT
+        likes: userId ? {
+          where: {
+            userId: userId,
+            type: 'LIKE'
+          },
           select: {
-            likes: true,
-            comments: true,
-            shares: true
+            id: true,
+            type: true
           }
-        }
+        } : false
       }
     });
     
-    // Compter le nombre total de produits pour la pagination
+    // 🔥 FORMATTER LES PRODUITS AVEC isLiked CALCULÉ
+    const formattedProducts = products.map(product => ({
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      formattedPrice: `${product.price} FCFA`,
+      stock: product.stock,
+      likesCount: product.likesCount,
+      commentsCount: product.commentsCount,
+      sharesCount: product.sharesCount,
+      isAvailable: product.stock > 0,
+      category: product.category,
+      status: product.status,
+      videoUrl: product.videoUrl,
+      images: product.images.map(img => ({
+        id: img.id,
+        imageUrl: img.imageUrl,
+        fullImageUrl: img.imageUrl
+      })),
+      shop: product.shop,
+      shopName: product.shop?.name || 'Boutique',
+      isShopVerified: product.shop?.verifiedBadge || false,
+      // 🔥 LE PLUS IMPORTANT : isLiked CALCULÉ IMMÉDIATEMENT !
+      isLiked: userId ? product.likes.length > 0 : false,
+      createdAt: product.createdAt,
+      updatedAt: product.updatedAt
+    }));
+    
+    console.log(`✅ ${formattedProducts.length} produits formatés avec isLiked`);
+    
     const totalProducts = await prisma.product.count({ where: filters });
     
     return res.status(200).json({
-      products,
+      products: formattedProducts,
       pagination: {
         total: totalProducts,
         page: parseInt(page),
@@ -693,9 +731,11 @@ export const getAllProducts = async (req, res) => {
   }
 };
 
+// 🔥 AUSSI MODIFIER getProductById pour inclure isLiked
 export const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user?.id;
     
     const product = await prisma.product.findUnique({
       where: { id: parseInt(id) },
@@ -717,7 +757,18 @@ export const getProductById = async (req, res) => {
               }
             }
           }
-        }
+        },
+        // 🔥 INCLURE LE LIKE DE L'UTILISATEUR
+        likes: userId ? {
+          where: {
+            userId: userId,
+            type: 'LIKE'
+          },
+          select: {
+            id: true,
+            type: true
+          }
+        } : false
       }
     });
     
@@ -725,7 +776,36 @@ export const getProductById = async (req, res) => {
       return res.status(404).json({ message: "Produit non trouvé" });
     }
     
-    return res.status(200).json(product);
+    // 🔥 FORMATTER AVEC isLiked INCLUS
+    const formattedProduct = {
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      formattedPrice: `${product.price} FCFA`,
+      stock: product.stock,
+      likesCount: product.likesCount,
+      commentsCount: product.commentsCount,
+      sharesCount: product.sharesCount,
+      isAvailable: product.stock > 0,
+      category: product.category,
+      status: product.status,
+      videoUrl: product.videoUrl,
+      images: product.images.map(img => ({
+        id: img.id,
+        imageUrl: img.imageUrl,
+        fullImageUrl: img.imageUrl
+      })),
+      shop: product.shop,
+      shopName: product.shop?.name || 'Boutique',
+      isShopVerified: product.shop?.verifiedBadge || false,
+      // 🔥 isLiked CALCULÉ DIRECTEMENT
+      isLiked: userId ? product.likes.length > 0 : false,
+      createdAt: product.createdAt,
+      updatedAt: product.updatedAt
+    };
+    
+    return res.status(200).json(formattedProduct);
   } catch (error) {
     console.error("Erreur lors de la récupération du produit:", error);
     return res.status(500).json({
